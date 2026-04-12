@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "technicalindicators": "^3.1.0"
   },
   "devDependencies": {
