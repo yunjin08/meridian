@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --color-btc-orange: #F7931A;
+  --color-bull-green: #26a69a;
+  --color-bear-red: #ef5350;
+  --color-terminal-bg: #0d1117;
+  --color-panel-bg: #161b22;
+  --color-panel-border: #30363d;
+  --color-text-primary: #e6edf3;
+  --color-text-muted: #8b949e;
+
+  --font-family-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+#root {
+  min-height: 100vh;
+}
