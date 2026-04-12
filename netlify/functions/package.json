@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "technicalindicators": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
+  }
+}
