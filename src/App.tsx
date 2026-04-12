@@ -1,5 +1,6 @@
 import { Header } from '@/components/layout/Header'
 import { Dashboard } from '@/components/layout/Dashboard'
+import { ChatWidget } from '@/components/chat/ChatWidget'
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket'
 import { useCandles } from '@/hooks/useCandles'
 import { useBalance } from '@/hooks/useBalance'
@@ -17,6 +18,7 @@ function AppInner() {
       <main className="flex-1">
         <Dashboard />
       </main>
+      <ChatWidget />
     </div>
   )
 }
