@@ -1,73 +1,82 @@
-# React + TypeScript + Vite
+# BTC Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+BTC Dashboard is a personal real-time Bitcoin trading dashboard connected to a Binance account. It displays live BTC/USDT price, account balance, candlestick charts with selectable timeframes, RSI/MACD/Bollinger Bands indicators, and a browser-notification alert system for custom price conditions.
 
-Currently, two official plugins are available:
+## Installation
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Requires [Node.js](https://nodejs.org/) and a [Netlify](https://www.netlify.com/) account for deployment.
 
-## React Compiler
+```bash
+# Clone the repo and install dependencies
+cd bitcoin-dashboard
+npm install
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Install Netlify Functions dependencies
+cd netlify/functions
+npm install
+cd ../..
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Configuration
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Create a `.env` file in `bitcoin-dashboard/` with your Binance API credentials:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
 ```
+
+> **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
+
+## Usage
+
+```bash
+# Start local development server (Vite + Netlify Functions on :8888)
+npm run dev
+
+# Type-check only
+npm run typecheck
+
+# Production build
+npm run build
+```
+
+Test API endpoints while `npm run dev` is running:
+
+```bash
+curl "http://localhost:8888/api/candles?interval=1h&limit=100"
+curl "http://localhost:8888/api/ticker"
+curl "http://localhost:8888/api/balance"
+curl "http://localhost:8888/api/health"
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, TypeScript, Vite |
+| Styling | Tailwind CSS v4 |
+| Charting | TradingView Lightweight Charts v5 |
+| State | Zustand v5 |
+| Backend | Netlify Functions (serverless) |
+| Indicators | technicalindicators (RSI, MACD, BB) |
+| Deployment | Netlify |
+
+## Architecture
+
+Public Binance WebSocket streams connect directly from the browser (CORS-exempt). All authenticated REST calls go through Netlify Functions to keep API keys server-side only.
+
+```
+Binance Public WS ──► browser (live price + kline updates)
+
+Browser ──► GET /api/candles ──► Netlify Function ──► Binance REST (klines + indicators)
+Browser ──► GET /api/balance ──► Netlify Function ──► Binance REST (HMAC signed)
+```
+
+## Deployment
+
+Deploy to Netlify and set `BINANCE_API_KEY` and `BINANCE_API_SECRET` in **Site Settings → Environment Variables**.
+
+## License
+
+[MIT](https://choosealicense.com/licenses/mit/)
