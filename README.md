@@ -8,7 +8,6 @@ Requires [Node.js](https://nodejs.org/) and a [Netlify](https://www.netlify.com/
 
 ```bash
 # Clone the repo and install dependencies
-cd bitcoin-dashboard
 npm install
 
 # Install Netlify Functions dependencies
@@ -19,7 +18,7 @@ cd ../..
 
 ## Configuration
 
-Create a `.env` file in `bitcoin-dashboard/` with your Binance API credentials:
+Create a `.env` file in the repo root with your Binance API credentials:
 
 ```bash
 BINANCE_API_KEY=your_api_key_here

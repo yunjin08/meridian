@@ -108,7 +108,7 @@ Hooks (`App.tsx`) call `usePriceStore.getState()` / `store.subscribe()` directly
 
 ```bash
 # Always cd into the project first
-cd /Users/jededisondonaire/jed/investing/bitcoin-dashboard
+cd /Users/jededisondonaire/jed/investing
 
 # Local development (starts Vite + Netlify Functions together on :8888)
 npm run dev
@@ -197,7 +197,7 @@ Create the Binance API key with **Read Info only** — disable Spot Trading, Wit
 
 4. **No database.** The app is stateless. Alerts persist in localStorage (Zustand persist). Everything else is fetched fresh or held in React state. If you need persistence beyond alerts, reconsider the architecture first.
 
-5. **Always cd into `bitcoin-dashboard/` before running commands.** The working directory is `/Users/jededisondonaire/jed/investing/` — everything lives one level deeper.
+5. **Always run commands from the repository root.** The working directory is `/Users/jededisondonaire/jed/investing/`.
 
 6. **Netlify Functions have a separate `tsconfig.json` and `package.json`.** The functions directory at `netlify/functions/` has its own `tsconfig.json` (NodeNext module resolution, not bundler mode) and its own `node_modules` for `technicalindicators` and `@types/node`.
 

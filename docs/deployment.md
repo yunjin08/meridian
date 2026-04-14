@@ -13,7 +13,7 @@
 ## Local development
 
 ```bash
-cd /Users/jededisondonaire/jed/investing/bitcoin-dashboard
+cd /Users/jededisondonaire/jed/investing
 
 # 1. Copy env template and fill in your keys
 cp .env.example .env
