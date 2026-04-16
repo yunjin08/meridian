@@ -1,4 +1,4 @@
-import type { StockHolding, StockQuote } from '@/types/portfolio'
+import type { StockHolding, StockQuote } from './portfolio.ts'
 
 export interface ChatMessage {
   id: string

@@ -1,4 +1,4 @@
-import type { CryptoHolding } from '@/types/portfolio'
+import type { CryptoHolding } from './portfolio.ts'
 
 // Full balance response — all non-dust Binance holdings with USDT values.
 export interface AccountBalance {
