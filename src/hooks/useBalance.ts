@@ -5,7 +5,7 @@ import { API_BASE, BALANCE_POLL_INTERVAL_MS } from '@/constants'
 import type { AccountBalance } from '@/types/account'
 
 async function fetchBalance(): Promise<AccountBalance> {
-  const res = await fetch(`${API_BASE}/balance`)
+  const res = await fetch(`${API_BASE}/balance`, { credentials: 'include' })
   if (!res.ok) {
     const body = await res.json() as { error?: string }
     throw new Error(body.error ?? `HTTP ${res.status}`)

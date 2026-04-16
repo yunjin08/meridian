@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatToolName } from '../../src/types/chat.ts'
 
 // ---------------------------------------------------------------------------
@@ -221,6 +222,8 @@ PRICE (${ctx.activeSymbol}):
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
   if (event.httpMethod !== 'POST') return methodNotAllowed()
 
   const apiKey = process.env['ANTHROPIC_API_KEY']

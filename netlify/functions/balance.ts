@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions'
 import { binanceFetch, binancePublicFetch, binanceSignedFetch, BinanceError } from './utils/binance-client.ts'
 import { preflight, ok, badGateway, internalError } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { BinanceAccountResponse, BinanceFundingAsset, BinanceSpotPrice } from '../../src/types/binance.ts'
 import type { AccountBalance } from '../../src/types/account.ts'
 import type { CryptoHolding } from '../../src/types/portfolio.ts'
@@ -42,6 +43,8 @@ function getAssetUsdtPrice(asset: string, priceMap: ReadonlyMap<string, number>)
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
 
   try {
     // Fetch account (weight: 10, HMAC signed)

@@ -7,7 +7,7 @@ import { formatPrice } from '@/lib/formatters'
 import type { CryptoTrade, TradesResponse } from '@/types/trade'
 
 async function fetchTrades(symbol: string): Promise<TradesResponse> {
-  const res = await fetch(`${API_BASE}/trades?symbol=${encodeURIComponent(symbol)}&limit=200`)
+  const res = await fetch(`${API_BASE}/trades?symbol=${encodeURIComponent(symbol)}&limit=200`, { credentials: 'include' })
   if (!res.ok) {
     const body = await res.json() as { error?: string }
     throw new Error(body.error ?? `HTTP ${res.status}`)

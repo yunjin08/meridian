@@ -1,11 +1,14 @@
 import type { Handler } from '@netlify/functions'
 import { finnhubFetch, FinnhubError } from './utils/finnhub-client.ts'
 import { preflight, ok, badRequest, badGateway, internalError } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { FinnhubQuote } from '../../src/types/finnhub.ts'
 import type { StockQuote } from '../../src/types/portfolio.ts'
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
 
   const params = event.queryStringParameters ?? {}
   const tickersParam = params['tickers'] ?? ''

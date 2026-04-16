@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { finnhubFetch, FinnhubError } from './utils/finnhub-client.ts'
 import { calculateIndicators } from './utils/indicators.ts'
 import { preflight, ok, badRequest, badGateway, internalError } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { FinnhubCandle } from '../../src/types/finnhub.ts'
 import type { Candle, CandlesResponse } from '../../src/types/candle.ts'
 
@@ -40,6 +41,8 @@ function parseFinnhubCandles(raw: FinnhubCandle): Candle[] {
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
 
   const params = event.queryStringParameters ?? {}
   const ticker = (params['ticker'] ?? '').toUpperCase()

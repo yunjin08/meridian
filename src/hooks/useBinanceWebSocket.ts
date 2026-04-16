@@ -27,7 +27,7 @@ function parseKlineToCandle(k: WsKlineMessage['k']): Candle {
 
 async function fetchTickerFallback(symbol: string): Promise<void> {
   try {
-    const res = await fetch(`${API_BASE}/ticker?symbol=${symbol}`)
+    const res = await fetch(`${API_BASE}/ticker?symbol=${symbol}`, { credentials: 'include' })
     if (!res.ok) return
     const data = await res.json() as {
       price: number

@@ -1,10 +1,13 @@
 import type { Handler } from '@netlify/functions'
 import { binancePublicFetch, BinanceError } from './utils/binance-client.ts'
 import { preflight, ok, badGateway, internalError } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { BinanceTicker24h } from '../../src/types/binance.ts'
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
 
   const params = event.queryStringParameters ?? {}
   const symbol = (params['symbol'] ?? 'BTCUSDT').toUpperCase()

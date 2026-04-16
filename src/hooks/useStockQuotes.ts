@@ -6,7 +6,7 @@ import type { StockQuote } from '@/types/portfolio'
 
 async function fetchQuotes(tickers: string[]): Promise<StockQuote[]> {
   if (tickers.length === 0) return []
-  const res = await fetch(`${API_BASE}/stock-quotes?tickers=${tickers.join(',')}`)
+  const res = await fetch(`${API_BASE}/stock-quotes?tickers=${tickers.join(',')}`, { credentials: 'include' })
   if (!res.ok) {
     const body = await res.json() as { error?: string }
     throw new Error(body.error ?? `HTTP ${res.status}`)

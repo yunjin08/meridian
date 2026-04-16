@@ -18,14 +18,28 @@ cd ../..
 
 ## Configuration
 
-Create a `.env` file in the repo root with your Binance API credentials:
+Create a `.env` file in the repo root with your Binance API credentials and auth settings:
 
 ```bash
 BINANCE_API_KEY=your_api_key_here
 BINANCE_API_SECRET=your_api_secret_here
+AUTH_PASSWORD_HASH=your_scrypt_hash_here
+AUTH_SESSION_SECRET=your_random_session_secret_here
 ```
 
 > **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
+
+Generate `AUTH_PASSWORD_HASH` in `salt:hash` format with Node:
+
+```bash
+node -e "const crypto=require('node:crypto');const salt=crypto.randomBytes(16).toString('hex');const hash=crypto.scryptSync(process.argv[1],salt,64).toString('hex');console.log(`${salt}:${hash}`)" "your-strong-passphrase"
+```
+
+Generate `AUTH_SESSION_SECRET`:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
 
 ## Usage
 
@@ -74,7 +88,7 @@ Browser ──► GET /api/balance ──► Netlify Function ──► Binance 
 
 ## Deployment
 
-Deploy to Netlify and set `BINANCE_API_KEY` and `BINANCE_API_SECRET` in **Site Settings → Environment Variables**.
+Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_SESSION_SECRET` in **Site Settings → Environment Variables**.
 
 ## License
 

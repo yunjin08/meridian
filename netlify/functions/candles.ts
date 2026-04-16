@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions'
 import { binancePublicFetch, BinanceError } from './utils/binance-client.ts'
 import { calculateIndicators } from './utils/indicators.ts'
 import { preflight, ok, badRequest, badGateway, internalError } from './utils/http.ts'
+import { requireAuth } from './utils/auth.ts'
 import type { BinanceKlineArray, BinanceKlineResponse } from '../../src/types/binance.ts'
 import type { Candle, CandlesResponse } from '../../src/types/candle.ts'
 
@@ -20,6 +21,8 @@ function parseKline(raw: BinanceKlineArray): Candle {
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return unauthorizedResponse
 
   const params = event.queryStringParameters ?? {}
   const symbol = (params['symbol'] ?? 'BTCUSDT').toUpperCase()

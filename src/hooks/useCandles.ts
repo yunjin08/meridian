@@ -10,7 +10,7 @@ async function fetchCandlesForSymbol(symbol: string, interval: string): Promise<
     ? `${API_BASE}/stock-candles?ticker=${symbol}&interval=${interval}`
     : `${API_BASE}/candles?symbol=${symbol}&interval=${interval}&limit=${CANDLE_LIMIT}`
 
-  const res = await fetch(url)
+  const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) {
     const body = await res.json() as { error?: string }
     throw new Error(body.error ?? `HTTP ${res.status}`)
