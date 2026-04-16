@@ -1,37 +1,21 @@
-import { PriceTicker } from '@/components/price/PriceTicker'
-import { BalanceCard } from '@/components/balance/BalanceCard'
-import { TimeframeSelector } from '@/components/chart/TimeframeSelector'
-import { ChartContainer } from '@/components/chart/ChartContainer'
-import { IndicatorPanel } from '@/components/chart/IndicatorPanel'
-import { AlertForm } from '@/components/alerts/AlertForm'
-import { AlertList } from '@/components/alerts/AlertList'
+import { TabBar } from '@/components/layout/TabBar'
+import { CryptoSection } from '@/components/crypto/CryptoSection'
+import { StocksSection } from '@/components/stocks/StocksSection'
+import { ReitsSection } from '@/components/reits/ReitsSection'
+import { PortfolioSection } from '@/components/portfolio/PortfolioSection'
+import { useNavigationStore } from '@/store/navigationStore'
 
 export function Dashboard() {
+  const activeTab = useNavigationStore((s) => s.activeTab)
+
   return (
-    <div className="flex flex-col gap-3 p-3 h-full">
-      {/* Top strip: price + balance */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="lg:col-span-3">
-          <PriceTicker />
-        </div>
-        <div>
-          <BalanceCard />
-        </div>
-      </div>
-
-      {/* Main: chart */}
-      <div className="flex flex-col gap-2">
-        <TimeframeSelector />
-        <div className="relative">
-          <ChartContainer />
-        </div>
-        <IndicatorPanel />
-      </div>
-
-      {/* Alerts */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <AlertForm />
-        <AlertList />
+    <div className="flex flex-col h-full">
+      <TabBar />
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'crypto'    && <CryptoSection />}
+        {activeTab === 'stocks'    && <StocksSection tab="stocks" filter="stock" />}
+        {activeTab === 'reits'     && <ReitsSection />}
+        {activeTab === 'portfolio' && <PortfolioSection />}
       </div>
     </div>
   )
