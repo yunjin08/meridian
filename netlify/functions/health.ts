@@ -1,9 +1,4 @@
 import type { Handler } from '@netlify/functions'
+import { ok } from './utils/http.ts'
 
-export const handler: Handler = async () => {
-  return {
-    statusCode: 200,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'ok', ts: Date.now() }),
-  }
-}
+export const handler: Handler = async () => ok({ status: 'ok', ts: Date.now() })
