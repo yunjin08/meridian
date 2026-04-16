@@ -3,34 +3,37 @@ import { usePriceStore } from '@/store/priceStore'
 import { useBalanceStore } from '@/store/balanceStore'
 import { useChartStore } from '@/store/chartStore'
 import { useAlertStore } from '@/store/alertStore'
+import { useCryptoHoldingsStore } from '@/store/cryptoHoldingsStore'
+import { usePortfolioStore } from '@/store/portfolioStore'
+import { useStockQuoteStore } from '@/store/stockQuoteStore'
+import { useNavigationStore } from '@/store/navigationStore'
 import { lastValue } from '@/lib/formatters'
 import type { AlertCondition } from '@/types/alert'
-import type { ChatMessage, DashboardContext, ChatApiResponse } from '@/types/chat'
+import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool } from '@/types/chat'
 
 function formatCondition(condition: AlertCondition): string {
   switch (condition.type) {
-    case 'price_above':
-      return `price above $${condition.threshold.toLocaleString()}`
-    case 'price_below':
-      return `price below $${condition.threshold.toLocaleString()}`
-    case 'price_crosses':
-      return `price crosses $${condition.threshold.toLocaleString()}`
-    case 'rsi_above':
-      return `RSI above ${condition.threshold}`
-    case 'rsi_below':
-      return `RSI below ${condition.threshold}`
-    case 'macd_crossover':
-      return 'MACD crossover (bullish)'
-    case 'macd_crossunder':
-      return 'MACD crossunder (bearish)'
+    case 'price_above':   return `price above $${condition.threshold.toLocaleString()}`
+    case 'price_below':   return `price below $${condition.threshold.toLocaleString()}`
+    case 'price_crosses': return `price crosses $${condition.threshold.toLocaleString()}`
+    case 'rsi_above':     return `RSI above ${condition.threshold}`
+    case 'rsi_below':     return `RSI below ${condition.threshold}`
+    case 'macd_crossover':  return 'MACD crossover (bullish)'
+    case 'macd_crossunder': return 'MACD crossunder (bearish)'
   }
 }
 
 function buildContext(): DashboardContext {
-  const price = usePriceStore.getState()
+  const priceState = usePriceStore.getState()
   const balance = useBalanceStore.getState()
   const chart = useChartStore.getState()
   const alertState = useAlertStore.getState()
+  const cryptoHoldings = useCryptoHoldingsStore.getState().holdings
+  const portfolio = usePortfolioStore.getState().stocks
+  const stockQuotes = useStockQuoteStore.getState().quotes
+  const activeSymbol = useNavigationStore.getState().activeSymbol
+
+  const activePrice = priceState.prices[activeSymbol]
 
   const candles = chart.candles
   const lastCandle = candles.length > 0 ? (candles[candles.length - 1] ?? null) : null
@@ -57,19 +60,30 @@ function buildContext(): DashboardContext {
     : null
 
   return {
+    activeSymbol,
     price: {
-      price: price.price,
-      changePercent: price.changePercent,
-      high24h: price.high24h,
-      low24h: price.low24h,
-      volume24h: price.volume24h,
-      connectionStatus: price.connectionStatus,
+      price: activePrice?.price ?? null,
+      changePercent: activePrice?.changePercent ?? null,
+      high24h: activePrice?.high24h ?? null,
+      low24h: activePrice?.low24h ?? null,
+      connectionStatus: priceState.connectionStatus,
     },
-    balance: {
-      btc: balance.balance?.btc ?? null,
-      usdt: balance.balance?.usdt ?? null,
-      btcInUsdt: balance.balance?.btcInUsdt ?? null,
-    },
+    cryptoHoldings: cryptoHoldings.map((h) => {
+      const p = priceState.prices[h.symbol]
+      return {
+        asset: h.asset,
+        symbol: h.symbol,
+        free: h.free,
+        usdtValue: h.usdtValue,
+        price: p?.price ?? null,
+        changePercent: p?.changePercent ?? null,
+      }
+    }),
+    totalCryptoUsdt: balance.balance?.totalUsdtValue ?? null,
+    stockHoldings: portfolio.map((h) => ({
+      ...h,
+      quote: stockQuotes[h.ticker] ?? null,
+    })),
     chart: {
       timeframe: chart.activeInterval,
       lastCandle,
@@ -80,11 +94,67 @@ function buildContext(): DashboardContext {
     alerts: alertState.alerts.map((a) => ({
       id: a.id,
       label: a.label,
+      symbol: a.symbol,
       condition: formatCondition(a.condition),
       active: a.active,
       triggered: a.triggered,
       triggeredAt: a.triggeredAt,
     })),
+  }
+}
+
+// Parse and apply tool calls returned by the backend to local stores
+function applyToolResults(toolCalls: AppliedTool[]) {
+  const alertStore = useAlertStore.getState()
+  const portfolioStore = usePortfolioStore.getState()
+
+  for (const tool of toolCalls) {
+    switch (tool.name) {
+      case 'add_alert': {
+        const input = tool.input as {
+          label: string
+          symbol: string
+          condition: { type: string; threshold?: number }
+          autoReset?: boolean
+        }
+        // Convert the raw condition to a proper AlertCondition discriminated union
+        let condition: AlertCondition
+        const t = input.condition.type
+        if (t === 'macd_crossover' || t === 'macd_crossunder') {
+          condition = { type: t }
+        } else if (t === 'rsi_above' || t === 'rsi_below') {
+          condition = { type: t, threshold: input.condition.threshold ?? 50 }
+        } else {
+          // price_above | price_below | price_crosses
+          condition = {
+            type: t as 'price_above' | 'price_below' | 'price_crosses',
+            threshold: input.condition.threshold ?? 0,
+          }
+        }
+        alertStore.addAlert(input.label, input.symbol.toUpperCase(), condition, input.autoReset ?? false)
+        break
+      }
+      case 'remove_alert': {
+        const { id } = tool.input as { id: string }
+        alertStore.removeAlert(id)
+        break
+      }
+      case 'toggle_alert': {
+        const { id } = tool.input as { id: string }
+        alertStore.toggleActive(id)
+        break
+      }
+      case 'add_symbol': {
+        const { ticker, assetClass } = tool.input as { ticker: string; assetClass: 'stock' | 'reit' }
+        portfolioStore.addStock({ ticker: ticker.toUpperCase(), assetClass })
+        break
+      }
+      case 'remove_symbol': {
+        const { ticker } = tool.input as { ticker: string }
+        portfolioStore.removeStock(ticker.toUpperCase())
+        break
+      }
+    }
   }
 }
 
@@ -102,7 +172,6 @@ export function useChat() {
         timestamp: Date.now(),
       }
 
-      // Build history from current messages + new user message before state updates
       const history = [...messages, userMessage].map((m) => ({
         role: m.role,
         content: m.content,
@@ -126,6 +195,11 @@ export function useChat() {
         if (!res.ok) {
           setError((data as unknown as { error?: string }).error ?? 'Request failed')
           return
+        }
+
+        // Apply any tool calls the assistant made (alerts, portfolio changes)
+        if (data.appliedTools.length > 0) {
+          applyToolResults(data.appliedTools)
         }
 
         const assistantMessage: ChatMessage = {

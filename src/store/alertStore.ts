@@ -5,7 +5,7 @@ import type { Alert, AlertCondition } from '@/types/alert'
 interface AlertState {
   alerts: Alert[]
 
-  addAlert: (label: string, condition: AlertCondition, autoReset?: boolean) => void
+  addAlert: (label: string, symbol: string, condition: AlertCondition, autoReset?: boolean) => void
   removeAlert: (id: string) => void
   toggleActive: (id: string) => void
   markTriggered: (id: string) => void
@@ -18,13 +18,14 @@ export const useAlertStore = create<AlertState>()(
     (set) => ({
       alerts: [],
 
-      addAlert: (label, condition, autoReset = false) =>
+      addAlert: (label, symbol, condition, autoReset = false) =>
         set((state) => ({
           alerts: [
             ...state.alerts,
             {
               id: crypto.randomUUID(),
               label,
+              symbol,
               condition,
               active: true,
               triggered: false,
@@ -73,7 +74,7 @@ export const useAlertStore = create<AlertState>()(
         })),
     }),
     {
-      name: 'btc-dashboard-alerts',
+      name: 'dashboard-alerts',
       // Only persist these fields — lastEvaluatedPrice resets on page load (intentional)
       partialize: (state) => ({
         alerts: state.alerts.map((a) => ({ ...a, lastEvaluatedPrice: null })),
