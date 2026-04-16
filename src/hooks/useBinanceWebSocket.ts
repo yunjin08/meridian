@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { usePriceStore } from '@/store/priceStore'
 import { useChartStore } from '@/store/chartStore'
+import { useCryptoHoldingsStore } from '@/store/cryptoHoldingsStore'
+import { useNavigationStore } from '@/store/navigationStore'
 import {
   BINANCE_WS_BASE,
-  SYMBOL_LOWER,
+  DEFAULT_CRYPTO_SYMBOL,
   WS_MAX_RECONNECT_ATTEMPTS,
   WS_RECONNECT_BASE_DELAY_MS,
   WS_RECONNECT_MAX_DELAY_MS,
@@ -23,10 +25,9 @@ function parseKlineToCandle(k: WsKlineMessage['k']): Candle {
   }
 }
 
-/** Try WebSocket; fall back to polling /api/ticker if WS fails to connect within 5s */
-async function fetchTickerFallback(): Promise<void> {
+async function fetchTickerFallback(symbol: string): Promise<void> {
   try {
-    const res = await fetch(`${API_BASE}/ticker?symbol=BTCUSDT`)
+    const res = await fetch(`${API_BASE}/ticker?symbol=${symbol}`)
     if (!res.ok) return
     const data = await res.json() as {
       price: number
@@ -35,13 +36,13 @@ async function fetchTickerFallback(): Promise<void> {
       low24h: number
       volume24h: number
     }
-    usePriceStore.getState().setPrice(
-      data.price,
-      data.priceChangePercent,
-      data.high24h,
-      data.low24h,
-      data.volume24h
-    )
+    usePriceStore.getState().setPrice(symbol, {
+      price: data.price,
+      changePercent: data.priceChangePercent,
+      high24h: data.high24h,
+      low24h: data.low24h,
+      volume24h: data.volume24h,
+    })
   } catch {
     // Silently ignore fallback failures
   }
@@ -49,41 +50,50 @@ async function fetchTickerFallback(): Promise<void> {
 
 export function useBinanceWebSocket() {
   const activeInterval = useChartStore((s) => s.activeInterval)
-  const activeIntervalRef = useRef(activeInterval)
+  const activeSymbol = useNavigationStore((s) => s.activeSymbol)
+  const holdings = useCryptoHoldingsStore((s) => s.holdings)
 
-  // Track active interval changes without triggering WS reconnect
-  useEffect(() => {
-    activeIntervalRef.current = activeInterval
-  }, [activeInterval])
+  const activeIntervalRef = useRef(activeInterval)
+  const activeSymbolRef = useRef(activeSymbol)
+  const holdingsRef = useRef(holdings)
+
+  useEffect(() => { activeIntervalRef.current = activeInterval }, [activeInterval])
+  useEffect(() => { activeSymbolRef.current = activeSymbol }, [activeSymbol])
+  useEffect(() => { holdingsRef.current = holdings }, [holdings])
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fallbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wsConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const currentKlineStreamRef = useRef<string>(`${SYMBOL_LOWER}@kline_${activeInterval}`)
+  const currentKlineStreamRef = useRef<string>('')
+  const subscribedTickersRef = useRef<Set<string>>(new Set())
   const isMountedRef = useRef(true)
 
   const { setConnectionStatus, setReconnectAttempts, setPrice } = usePriceStore.getState()
   const { updateLastCandle, appendCandle } = useChartStore.getState()
 
-  function handleTickerMessage(msg: WsTickerMessage) {
-    setPrice(
-      parseFloat(msg.c),
-      parseFloat(msg.P),
-      parseFloat(msg.h),
-      parseFloat(msg.l),
-      parseFloat(msg.q)
-    )
+  function symbolToStream(symbol: string): string {
+    return symbol.toLowerCase() + '@ticker'
+  }
+
+  function handleTickerMessage(stream: string, msg: WsTickerMessage) {
+    // Derive symbol from stream name: "ethusdt@ticker" → "ETHUSDT"
+    const symbol = stream.split('@')[0]?.toUpperCase() ?? DEFAULT_CRYPTO_SYMBOL
+    setPrice(symbol, {
+      price: parseFloat(msg.c),
+      changePercent: parseFloat(msg.P),
+      high24h: parseFloat(msg.h),
+      low24h: parseFloat(msg.l),
+      volume24h: parseFloat(msg.q),
+    })
   }
 
   function handleKlineMessage(msg: WsKlineMessage) {
     const candle = parseKlineToCandle(msg.k)
     if (msg.k.x) {
-      // Kline is closed — append as a new completed candle
       appendCandle(candle)
     } else {
-      // Kline is still forming — update the last candle
       updateLastCandle(candle)
     }
   }
@@ -92,9 +102,8 @@ export function useBinanceWebSocket() {
     try {
       const combined = JSON.parse(event.data) as WsCombinedMessage
       const { stream, data } = combined
-
       if (stream.endsWith('@ticker')) {
-        handleTickerMessage(data as WsTickerMessage)
+        handleTickerMessage(stream, data as WsTickerMessage)
       } else if (stream.includes('@kline_')) {
         handleKlineMessage(data as WsKlineMessage)
       }
@@ -106,9 +115,9 @@ export function useBinanceWebSocket() {
   function startFallbackPolling() {
     if (fallbackIntervalRef.current !== null) return
     fallbackIntervalRef.current = setInterval(() => {
-      void fetchTickerFallback()
+      void fetchTickerFallback(activeSymbolRef.current)
     }, 5000)
-    void fetchTickerFallback() // Immediate first call
+    void fetchTickerFallback(activeSymbolRef.current)
   }
 
   function stopFallbackPolling() {
@@ -122,10 +131,21 @@ export function useBinanceWebSocket() {
     if (!isMountedRef.current) return
 
     const interval = activeIntervalRef.current
-    const klineStream = `${SYMBOL_LOWER}@kline_${interval}`
-    currentKlineStreamRef.current = klineStream
+    const symbol = activeSymbolRef.current
+    const currentHoldings = holdingsRef.current
 
-    const streams = `${SYMBOL_LOWER}@ticker/${klineStream}`
+    // Build ticker streams for all held assets + at least the active symbol
+    const tickerSymbols = new Set<string>([symbol])
+    for (const h of currentHoldings) {
+      if (h.symbol !== 'USDT') tickerSymbols.add(h.symbol)
+    }
+
+    const tickerStreams = [...tickerSymbols].map(symbolToStream)
+    const klineStream = `${symbol.toLowerCase()}@kline_${interval}`
+    currentKlineStreamRef.current = klineStream
+    subscribedTickersRef.current = new Set(tickerStreams)
+
+    const streams = [...tickerStreams, klineStream].join('/')
     const url = `${BINANCE_WS_BASE}?streams=${streams}`
 
     setConnectionStatus('connecting')
@@ -133,7 +153,6 @@ export function useBinanceWebSocket() {
     const ws = new WebSocket(url)
     wsRef.current = ws
 
-    // If WS doesn't connect within 5 seconds, start fallback polling
     wsConnectTimeoutRef.current = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) {
         console.warn('[ws] connection timeout — starting fallback polling')
@@ -157,7 +176,6 @@ export function useBinanceWebSocket() {
 
     ws.onclose = () => {
       if (!isMountedRef.current) return
-
       setConnectionStatus('disconnected')
 
       const attempts = reconnectAttemptsRef.current
@@ -171,11 +189,9 @@ export function useBinanceWebSocket() {
         WS_RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
         WS_RECONNECT_MAX_DELAY_MS
       )
-      console.log(`[ws] reconnecting in ${delay}ms (attempt ${attempts + 1})`)
       setConnectionStatus('reconnecting')
       reconnectAttemptsRef.current += 1
       setReconnectAttempts(reconnectAttemptsRef.current)
-
       reconnectTimerRef.current = setTimeout(connect, delay)
     }
   }
@@ -186,7 +202,7 @@ export function useBinanceWebSocket() {
     if (reconnectTimerRef.current !== null) clearTimeout(reconnectTimerRef.current)
     stopFallbackPolling()
     if (wsRef.current !== null) {
-      wsRef.current.onclose = null  // prevent reconnect on intentional close
+      wsRef.current.onclose = null
       wsRef.current.close()
       wsRef.current = null
     }
@@ -199,25 +215,41 @@ export function useBinanceWebSocket() {
     return cleanup
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Subscribe/unsubscribe kline stream on timeframe change (no full reconnect)
+  // Switch kline stream when active symbol or timeframe changes
   useEffect(() => {
     const ws = wsRef.current
     if (ws === null || ws.readyState !== WebSocket.OPEN) return
 
-    const newStream = `${SYMBOL_LOWER}@kline_${activeInterval}`
-    if (newStream === currentKlineStreamRef.current) return
+    const newKline = `${activeSymbol.toLowerCase()}@kline_${activeInterval}`
+    if (newKline === currentKlineStreamRef.current) return
 
-    // Unsubscribe old stream, subscribe new one
-    ws.send(JSON.stringify({
-      method: 'UNSUBSCRIBE',
-      params: [currentKlineStreamRef.current],
-      id: 1,
-    }))
-    ws.send(JSON.stringify({
-      method: 'SUBSCRIBE',
-      params: [newStream],
-      id: 2,
-    }))
-    currentKlineStreamRef.current = newStream
-  }, [activeInterval])
+    ws.send(JSON.stringify({ method: 'UNSUBSCRIBE', params: [currentKlineStreamRef.current], id: 1 }))
+    ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: [newKline], id: 2 }))
+    currentKlineStreamRef.current = newKline
+  }, [activeSymbol, activeInterval])
+
+  // Subscribe to ticker streams for newly added holdings
+  useEffect(() => {
+    const ws = wsRef.current
+    if (ws === null || ws.readyState !== WebSocket.OPEN) return
+
+    const desired = new Set<string>()
+    desired.add(symbolToStream(activeSymbol))
+    for (const h of holdings) {
+      if (h.symbol !== 'USDT') desired.add(symbolToStream(h.symbol))
+    }
+
+    const current = subscribedTickersRef.current
+    const toSubscribe = [...desired].filter((s) => !current.has(s))
+    const toUnsubscribe = [...current].filter((s) => !desired.has(s))
+
+    if (toSubscribe.length > 0) {
+      ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: toSubscribe, id: 3 }))
+      toSubscribe.forEach((s) => current.add(s))
+    }
+    if (toUnsubscribe.length > 0) {
+      ws.send(JSON.stringify({ method: 'UNSUBSCRIBE', params: toUnsubscribe, id: 4 }))
+      toUnsubscribe.forEach((s) => current.delete(s))
+    }
+  }, [holdings, activeSymbol])
 }

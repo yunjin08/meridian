@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { usePriceStore } from '@/store/priceStore'
 import { useChartStore } from '@/store/chartStore'
 import { useAlertStore } from '@/store/alertStore'
+import { useNavigationStore } from '@/store/navigationStore'
 import { sendNotification } from '@/lib/notifications'
 import { lastValue, formatPrice, formatNumber } from '@/lib/formatters'
 import { ALERT_AUTO_RESET_COOLDOWN_MS } from '@/constants'
@@ -13,13 +14,13 @@ function evaluatePriceAlert(alert: Alert, price: number): { triggered: boolean; 
   if (condition.type === 'price_above') {
     return {
       triggered: price > condition.threshold,
-      detail: `Price ${formatPrice(price)} > ${formatPrice(condition.threshold)}`,
+      detail: `${alert.symbol} price ${formatPrice(price)} > ${formatPrice(condition.threshold)}`,
     }
   }
   if (condition.type === 'price_below') {
     return {
       triggered: price < condition.threshold,
-      detail: `Price ${formatPrice(price)} < ${formatPrice(condition.threshold)}`,
+      detail: `${alert.symbol} price ${formatPrice(price)} < ${formatPrice(condition.threshold)}`,
     }
   }
   if (condition.type === 'price_crosses') {
@@ -30,7 +31,7 @@ function evaluatePriceAlert(alert: Alert, price: number): { triggered: boolean; 
       (prev > condition.threshold && price <= condition.threshold)
     return {
       triggered: crossed,
-      detail: `Price crossed $${condition.threshold.toLocaleString()} (now ${formatPrice(price)})`,
+      detail: `${alert.symbol} crossed $${condition.threshold.toLocaleString()} (now ${formatPrice(price)})`,
     }
   }
   return { triggered: false, detail: '' }
@@ -47,12 +48,12 @@ function evaluateIndicatorAlert(
     if (condition.type === 'rsi_above') {
       return {
         triggered: rsi > condition.threshold,
-        detail: `RSI ${formatNumber(rsi, 1)} > ${condition.threshold}`,
+        detail: `${alert.symbol} RSI ${formatNumber(rsi, 1)} > ${condition.threshold}`,
       }
     }
     return {
       triggered: rsi < condition.threshold,
-      detail: `RSI ${formatNumber(rsi, 1)} < ${condition.threshold}`,
+      detail: `${alert.symbol} RSI ${formatNumber(rsi, 1)} < ${condition.threshold}`,
     }
   }
   if (condition.type === 'macd_crossover' || condition.type === 'macd_crossunder') {
@@ -62,12 +63,12 @@ function evaluateIndicatorAlert(
     if (condition.type === 'macd_crossover') {
       return {
         triggered: macd > signal,
-        detail: `MACD crossover (${formatNumber(macd, 2)} > ${formatNumber(signal, 2)})`,
+        detail: `${alert.symbol} MACD crossover (${formatNumber(macd, 2)} > ${formatNumber(signal, 2)})`,
       }
     }
     return {
       triggered: macd < signal,
-      detail: `MACD crossunder (${formatNumber(macd, 2)} < ${formatNumber(signal, 2)})`,
+      detail: `${alert.symbol} MACD crossunder (${formatNumber(macd, 2)} < ${formatNumber(signal, 2)})`,
     }
   }
   return { triggered: false, detail: '' }
@@ -75,11 +76,9 @@ function evaluateIndicatorAlert(
 
 export function useAlertEvaluator() {
   useEffect(() => {
-    // Subscribe to price changes — runs outside React render cycle
+    // Subscribe to ALL price changes — evaluate each alert against its symbol's price
     const unsubPrice = usePriceStore.subscribe((state) => {
-      const { price } = state
-      if (price === null) return
-
+      const { prices } = state
       const { alerts, markTriggered, updateLastEvaluatedPrice, resetAlert } =
         useAlertStore.getState()
 
@@ -94,8 +93,11 @@ export function useAlertEvaluator() {
           resetAlert(alert.id)
         }
 
+        const priceData = prices[alert.symbol]
+        if (!priceData) continue
+        const { price } = priceData
+
         if (!alert.active || alert.triggered) {
-          // Still update lastEvaluatedPrice for cross detection even when triggered/inactive
           if (alert.condition.type === 'price_crosses') {
             updateLastEvaluatedPrice(alert.id, price)
           }
@@ -110,22 +112,25 @@ export function useAlertEvaluator() {
           const { triggered, detail } = evaluatePriceAlert(alert, price)
           if (triggered) {
             markTriggered(alert.id)
-            sendNotification('BTC Alert Triggered', detail, alert.id)
+            sendNotification(`${alert.symbol} Alert`, detail, alert.id)
           }
           updateLastEvaluatedPrice(alert.id, price)
         }
       }
     })
 
-    // Subscribe to indicator changes — fires on each candle refresh (~60s)
+    // Subscribe to indicator changes — only evaluate for the active chart symbol
     const unsubIndicators = useChartStore.subscribe((state) => {
       const { indicators } = state
       if (indicators === null) return
 
+      const activeSymbol = useNavigationStore.getState().activeSymbol
       const { alerts, markTriggered } = useAlertStore.getState()
 
       for (const alert of alerts) {
         if (!alert.active || alert.triggered) continue
+        // Only evaluate indicator alerts that match the currently charted symbol
+        if (alert.symbol !== activeSymbol) continue
 
         if (
           alert.condition.type === 'rsi_above' ||
@@ -136,7 +141,7 @@ export function useAlertEvaluator() {
           const { triggered, detail } = evaluateIndicatorAlert(alert, indicators)
           if (triggered) {
             markTriggered(alert.id)
-            sendNotification('BTC Alert Triggered', detail, alert.id)
+            sendNotification(`${alert.symbol} Alert`, detail, alert.id)
           }
         }
       }
