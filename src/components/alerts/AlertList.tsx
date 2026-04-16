@@ -12,7 +12,7 @@ export function AlertList() {
 
       {alerts.length === 0 ? (
         <div className="text-text-muted/50 text-xs text-center py-4">
-          No alerts set — add one to get started
+          No alerts — ask the assistant to create one.
         </div>
       ) : (
         <div className="space-y-2 max-h-64 overflow-y-auto">

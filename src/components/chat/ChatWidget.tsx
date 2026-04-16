@@ -3,10 +3,10 @@ import { useChat } from '@/hooks/useChat'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 
 const SUGGESTIONS = [
-  'What is the current BTC price?',
-  'Is RSI overbought or oversold?',
-  'What is my total portfolio value?',
-  'Are any alerts close to triggering?',
+  'Alert me when BTC crosses $100,000',
+  'What is my total crypto value?',
+  'Is BTC RSI overbought or oversold?',
+  'Add AAPL to my stocks',
 ]
 
 export function ChatWidget() {
@@ -55,8 +55,8 @@ export function ChatWidget() {
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-panel-border shrink-0">
             <div className="flex items-center gap-2">
-              <span className="text-btc-orange font-mono text-sm">₿</span>
-              <span className="text-text-primary text-xs font-medium tracking-wide">BTC Assistant</span>
+              <span className="text-btc-orange font-mono text-sm">◈</span>
+              <span className="text-text-primary text-xs font-medium tracking-wide">Investing Assistant</span>
             </div>
             <div className="flex items-center gap-3">
               {messages.length > 0 && (
@@ -83,7 +83,7 @@ export function ChatWidget() {
             {messages.length === 0 ? (
               <div className="flex flex-col gap-2 mt-2">
                 <p className="text-text-muted text-xs text-center mb-1">
-                  Ask about your live dashboard data
+                  Ask questions or manage alerts &amp; portfolio
                 </p>
                 {SUGGESTIONS.map((s) => (
                   <button
@@ -126,7 +126,7 @@ export function ChatWidget() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about price, balance, indicators…"
+              placeholder="Ask about prices, create alerts, add stocks…"
               disabled={isLoading}
               className="flex-1 bg-terminal-bg text-text-primary text-xs px-2.5 py-1.5 rounded border border-panel-border focus:outline-none focus:border-btc-orange disabled:opacity-50 placeholder-text-muted font-mono"
             />
@@ -146,8 +146,8 @@ export function ChatWidget() {
       <button
         onClick={() => setIsOpen((o) => !o)}
         className="w-11 h-11 rounded-full bg-btc-orange hover:bg-orange-400 text-white flex items-center justify-center shadow-lg transition-colors text-base"
-        aria-label={isOpen ? 'Close assistant' : 'Open BTC assistant'}
-        title="BTC Assistant"
+        aria-label={isOpen ? 'Close assistant' : 'Open investing assistant'}
+        title="Investing Assistant"
       >
         {isOpen ? '✕' : '💬'}
       </button>
