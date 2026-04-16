@@ -4,6 +4,7 @@ import { TimeframeSelector } from '@/components/chart/TimeframeSelector'
 import { ChartContainer } from '@/components/chart/ChartContainer'
 import { IndicatorPanel } from '@/components/chart/IndicatorPanel'
 import { AssetSelector } from '@/components/chart/AssetSelector'
+import { CryptoTradeDetails } from '@/components/crypto/CryptoTradeDetails'
 import { useNavigationStore } from '@/store/navigationStore'
 import { usePriceStore } from '@/store/priceStore'
 import { formatPrice, formatPercent } from '@/lib/formatters'
@@ -36,28 +37,39 @@ function ActiveSymbolHeader() {
 
 export function CryptoSection() {
   return (
-    <div className="flex flex-col lg:flex-row gap-3 p-3 h-full">
-      {/* Left panel: holdings + alerts */}
-      <div className="lg:w-56 xl:w-64 flex-shrink-0 flex flex-col gap-3">
-        <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
-          <CryptoHoldingsList />
+    <div className="flex flex-col gap-3 p-3 h-full">
+      {/* Top row: holdings + chart + trade summary */}
+      <div className="flex flex-col lg:flex-row gap-3 min-h-0 lg:h-[620px] lg:max-h-[calc(100vh-11rem)]">
+        <div className="lg:w-56 xl:w-64 shrink-0 min-h-0">
+          <div className="bg-panel-bg border border-panel-border rounded-lg p-3 h-full overflow-y-auto">
+            <CryptoHoldingsList />
+          </div>
         </div>
-        <div className="bg-panel-bg border border-panel-border rounded-lg p-3 flex-1 min-h-0">
-          <AlertList />
+
+        {/* Middle panel: chart */}
+        <div className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
+          <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
+            <ActiveSymbolHeader />
+          </div>
+          <div className="flex-1 min-h-0">
+            <ChartContainer />
+          </div>
+          <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
+            <IndicatorPanel />
+          </div>
+        </div>
+
+        {/* Right panel: trade summary/history */}
+        <div className="lg:w-72 xl:w-80 shrink-0 min-h-0">
+          <div className="bg-panel-bg border border-panel-border rounded-lg p-3 h-full min-h-0 overflow-y-auto">
+            <CryptoTradeDetails />
+          </div>
         </div>
       </div>
 
-      {/* Right panel: chart */}
-      <div className="flex-1 flex flex-col gap-2 min-w-0">
-        <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
-          <ActiveSymbolHeader />
-        </div>
-        <div className="flex-1">
-          <ChartContainer />
-        </div>
-        <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
-          <IndicatorPanel />
-        </div>
+      {/* Bottom row: alerts */}
+      <div className="bg-panel-bg border border-panel-border rounded-lg p-3 min-h-[180px]">
+        <AlertList />
       </div>
     </div>
   )
