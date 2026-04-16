@@ -124,7 +124,7 @@ export function CryptoTradeDetails() {
       )}
 
       {!isLoading && error === null && trades.length > 0 && (
-        <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+        <div className="max-h-[22rem] overflow-y-auto space-y-1 pr-1">
           {trades.map((t) => (
             <div key={t.id} className="bg-terminal-bg border border-panel-border rounded px-2 py-1">
               <div className="flex justify-between items-center text-[10px] font-mono">
