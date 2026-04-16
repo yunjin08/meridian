@@ -30,6 +30,14 @@ export interface BinanceAccountResponse {
   balances: BinanceAccountAsset[]
 }
 
+export interface BinanceFundingAsset {
+  asset: string
+  free: string
+  locked: string
+  freeze?: string
+  withdrawing?: string
+}
+
 export interface BinanceTicker24h {
   symbol: string
   priceChange: string

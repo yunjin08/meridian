@@ -60,6 +60,15 @@ export async function binanceFetch<T>(
   path: string,
   params: Record<string, string | number> = {}
 ): Promise<T> {
+  return binanceSignedFetch<T>('GET', path, params)
+}
+
+/** Fetch a signed (authenticated) Binance endpoint with custom method. */
+export async function binanceSignedFetch<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  params: Record<string, string | number> = {}
+): Promise<T> {
   const apiKey = getRequiredEnv('BINANCE_API_KEY')
   const apiSecret = getRequiredEnv('BINANCE_API_SECRET')
 
@@ -69,6 +78,7 @@ export async function binanceFetch<T>(
   const url = `${BASE_URL}${path}?${qs}&signature=${signature}`
 
   const res = await fetch(url, {
+    method,
     headers: { 'X-MBX-APIKEY': apiKey },
   })
   const data = await res.json() as unknown
