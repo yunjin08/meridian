@@ -5,17 +5,19 @@ import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket'
 import { useCandles } from '@/hooks/useCandles'
 import { useBalance } from '@/hooks/useBalance'
 import { useAlertEvaluator } from '@/hooks/useAlertEvaluator'
+import { useStockQuotes } from '@/hooks/useStockQuotes'
 
 function AppInner() {
   useBinanceWebSocket()
   useCandles()
   useBalance()
   useAlertEvaluator()
+  useStockQuotes()
 
   return (
     <div className="min-h-screen bg-terminal-bg text-text-primary flex flex-col">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col">
         <Dashboard />
       </main>
       <ChatWidget />

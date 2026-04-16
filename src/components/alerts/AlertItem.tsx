@@ -37,7 +37,9 @@ export function AlertItem({ alert }: AlertItemProps) {
     >
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-text-primary truncate">{alert.label}</div>
-        <div className="text-text-muted font-mono mt-0.5">{conditionLabel(alert)}</div>
+        <div className="text-text-muted font-mono mt-0.5">
+          <span className="text-text-muted/60">[{alert.symbol}]</span> {conditionLabel(alert)}
+        </div>
         {alert.triggered && alert.triggeredAt !== null && (
           <div className="text-btc-orange mt-0.5">
             Triggered {formatTimestamp(alert.triggeredAt)}
