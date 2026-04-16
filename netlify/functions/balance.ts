@@ -1,19 +1,11 @@
 import type { Handler } from '@netlify/functions'
-import { binanceFetch, binancePublicFetch, BinanceError } from './_binance-client.ts'
+import { binanceFetch, binancePublicFetch, BinanceError } from './utils/binance-client.ts'
+import { preflight, ok, badGateway, internalError } from './utils/http.ts'
 import type { BinanceAccountResponse, BinanceSpotPrice } from '../../src/types/binance.ts'
 import type { AccountBalance } from '../../src/types/account.ts'
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Content-Type': 'application/json',
-  }
-}
-
 export const handler: Handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders(), body: '' }
-  }
+  if (event.httpMethod === 'OPTIONS') return preflight()
 
   const params = event.queryStringParameters ?? {}
   // Accept live price from frontend to avoid an extra Binance call
@@ -45,24 +37,12 @@ export const handler: Handler = async (event) => {
       fetchedAt: Date.now(),
     }
 
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: JSON.stringify(response),
-    }
+    return ok(response)
   } catch (err) {
     if (err instanceof BinanceError) {
-      return {
-        statusCode: 502,
-        headers: corsHeaders(),
-        body: JSON.stringify({ error: 'binance_error', code: err.code, msg: err.message }),
-      }
+      return badGateway('binance_error', { code: err.code, msg: err.message })
     }
     console.error('[balance] unexpected error:', err)
-    return {
-      statusCode: 500,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'internal_error' }),
-    }
+    return internalError('internal_error')
   }
 }

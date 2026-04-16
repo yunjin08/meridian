@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
+import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway } from './utils/http.ts'
 import type { DashboardContext, ChatRequest } from '../../src/types/chat.ts'
 
 function buildSystemPrompt(ctx: DashboardContext): string {
@@ -85,54 +86,26 @@ CHART (${ctx.chart.timeframe} timeframe):`
   return prompt
 }
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Content-Type': 'application/json',
-  }
-}
-
 export const handler: Handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders(), body: '' }
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    }
-  }
+  if (event.httpMethod === 'OPTIONS') return preflight()
+  if (event.httpMethod !== 'POST') return methodNotAllowed()
 
   const apiKey = process.env['ANTHROPIC_API_KEY']
   if (!apiKey) {
     console.error('[chat] ANTHROPIC_API_KEY is not set')
-    return {
-      statusCode: 500,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'AI assistant is not configured' }),
-    }
+    return internalError('AI assistant is not configured')
   }
 
   let body: ChatRequest
   try {
     body = JSON.parse(event.body ?? '{}') as ChatRequest
   } catch {
-    return {
-      statusCode: 400,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Invalid JSON body' }),
-    }
+    return badRequest('Invalid JSON body')
   }
 
   const { messages, context } = body
   if (!Array.isArray(messages) || !context) {
-    return {
-      statusCode: 400,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'messages and context are required' }),
-    }
+    return badRequest('messages and context are required')
   }
 
   const client = new Anthropic({ apiKey })
@@ -150,24 +123,12 @@ export const handler: Handler = async (event) => {
 
     const first = response.content[0]
     if (!first || first.type !== 'text') {
-      return {
-        statusCode: 500,
-        headers: corsHeaders(),
-        body: JSON.stringify({ error: 'Unexpected response from AI' }),
-      }
+      return internalError('Unexpected response from AI')
     }
 
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: JSON.stringify({ reply: first.text }),
-    }
+    return ok({ reply: first.text })
   } catch (err) {
     console.error('[chat] Anthropic API error:', err)
-    return {
-      statusCode: 502,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Failed to reach AI service' }),
-    }
+    return badGateway('Failed to reach AI service')
   }
 }
