@@ -2,6 +2,7 @@ import { useCryptoHoldingsStore } from '@/store/cryptoHoldingsStore'
 import { useBalanceStore } from '@/store/balanceStore'
 import { formatPrice } from '@/lib/formatters'
 import { CryptoHoldingRow } from './CryptoHoldingRow'
+import { CryptoTradeDetails } from './CryptoTradeDetails'
 
 export function CryptoHoldingsList() {
   const holdings = useCryptoHoldingsStore((s) => s.holdings)
@@ -37,6 +38,7 @@ export function CryptoHoldingsList() {
           {holdings.map((h) => (
             <CryptoHoldingRow key={h.asset} holding={h} />
           ))}
+          <CryptoTradeDetails />
         </div>
       )}
 

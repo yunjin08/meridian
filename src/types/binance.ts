@@ -54,6 +54,20 @@ export interface BinanceSpotPrice {
   price: string
 }
 
+export interface BinanceMyTrade {
+  symbol: string
+  id: number
+  orderId: number
+  price: string
+  qty: string
+  quoteQty: string
+  commission: string
+  commissionAsset: string
+  time: number
+  isBuyer: boolean
+  isMaker: boolean
+}
+
 export interface BinanceError {
   code: number
   msg: string
