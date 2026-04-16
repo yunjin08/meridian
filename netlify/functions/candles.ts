@@ -10,11 +10,11 @@ const VALID_INTERVALS = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h
 function parseKline(raw: BinanceKlineArray): Candle {
   return {
     time: Math.floor(raw[0] / 1000), // ms → seconds (TradingView expects seconds)
-    open: parseFloat(raw[1]),
-    high: parseFloat(raw[2]),
-    low: parseFloat(raw[3]),
-    close: parseFloat(raw[4]),
-    volume: parseFloat(raw[5]),
+    open: Number.parseFloat(raw[1]),
+    high: Number.parseFloat(raw[2]),
+    low: Number.parseFloat(raw[3]),
+    close: Number.parseFloat(raw[4]),
+    volume: Number.parseFloat(raw[5]),
   }
 }
 
@@ -24,7 +24,7 @@ export const handler: Handler = async (event) => {
   const params = event.queryStringParameters ?? {}
   const symbol = (params['symbol'] ?? 'BTCUSDT').toUpperCase()
   const interval = params['interval'] ?? '1h'
-  const limit = Math.min(Math.max(parseInt(params['limit'] ?? '500', 10), 50), 1000)
+  const limit = Math.min(Math.max(Number.parseInt(params['limit'] ?? '500', 10), 50), 1000)
 
   if (!VALID_INTERVALS.has(interval)) return badRequest('Invalid interval')
 
@@ -39,7 +39,10 @@ export const handler: Handler = async (event) => {
       return badGateway('Empty kline response from Binance')
     }
 
-    const candles = rawKlines.map(parseKline)
+    // lightweight-charts requires strictly ascending `time`. Some intervals can
+    // occasionally arrive out-of-order, so normalize by kline open time first.
+    const sortedRawKlines = [...rawKlines].sort((a, b) => a[0] - b[0])
+    const candles = sortedRawKlines.map(parseKline)
     const indicators = calculateIndicators(candles)
 
     const response: CandlesResponse = { candles, indicators, interval, fetchedAt: Date.now() }

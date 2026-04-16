@@ -83,7 +83,10 @@ export function ChartContainer() {
   useEffect(() => {
     const series = seriesRef.current
     if (series === null || candles.length === 0) return
-    series.setData(candles.map(candleToChartData))
+    // lightweight-charts requires strictly ascending `time`.
+    // Sort defensively in case the API ever returns non-monotonic klines.
+    const sortedCandles = [...candles].sort((a, b) => a.time - b.time)
+    series.setData(sortedCandles.map(candleToChartData))
     chartRef.current?.timeScale().fitContent()
   }, [candles])
 
