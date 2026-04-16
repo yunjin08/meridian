@@ -26,6 +26,7 @@ export type AlertCondition = PriceCondition | RsiCondition | MacdCondition
 export interface Alert {
   id: string
   label: string
+  symbol: string                     // asset symbol this alert is for, e.g. "BTCUSDT", "AAPL"
   condition: AlertCondition
   active: boolean
   triggered: boolean

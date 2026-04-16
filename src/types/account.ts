@@ -1,6 +1,8 @@
+import type { CryptoHolding } from '@/types/portfolio'
+
+// Full balance response — all non-dust Binance holdings with USDT values.
 export interface AccountBalance {
-  btc: number
-  usdt: number
-  btcInUsdt: number   // btc * currentPrice (approximate)
-  fetchedAt: number   // Unix ms timestamp
+  holdings: CryptoHolding[]
+  totalUsdtValue: number
+  fetchedAt: number
 }
