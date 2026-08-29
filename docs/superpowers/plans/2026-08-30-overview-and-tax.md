@@ -4,7 +4,7 @@
 
 **Goal:** Make an Overview tab the landing page (total value across crypto, stocks, REITs, plus a tax deadline banner) and add a Tax tab where a purely self-employed PH taxpayer on the 8% flat rate logs PHP receipts, sees quarterly / annual tax due, and is notified before BIR deadlines.
 
-**Architecture:** Pure math in `src/lib/tax.ts` and `src/lib/portfolioSummary.ts` (unit tested). Tax records persist in Supabase Postgres, reached only through two Netlify Functions behind the existing session auth, using the service role key. Frontend keeps the existing pattern: Zustand store per domain, one hook per side effect, components read stores directly.
+**Architecture:** Pure math in `src/lib/tax.ts` and `src/lib/portfolioSummary.ts` (unit tested). Stock and REIT values come from Trading 212 positions (account currency) with quote x shares as the fallback, matching the rule the current `PortfolioSection` already applies. Tax records persist in Supabase Postgres, reached only through two Netlify Functions behind the existing session auth, using the service role key. Frontend keeps the existing pattern: Zustand store per domain, one hook per side effect, components read stores directly.
 
 **Tech Stack:** React 19, TypeScript 6 strict, Vite 8, Tailwind v4, Zustand 5, Netlify Functions (esbuild), `@supabase/supabase-js` v2, Vitest.
 
@@ -50,7 +50,7 @@ src/store/taxStore.ts                            entries, filings, async actions
 src/store/navigationStore.ts                     tabs: overview | crypto | stocks | reits | tax
 src/hooks/useTaxData.ts                          load on mount
 src/hooks/useTaxDeadlines.ts                     actionable period + browser notification
-src/hooks/usePortfolioSummary.ts                 memoised summary from stores
+src/hooks/usePortfolioSummary.ts                 memoised summary from stores (incl. stockPositionsStore)
 src/components/layout/TabBar.tsx                 new tab list
 src/components/layout/Dashboard.tsx              new routing
 src/components/ui/SkeletonBlock.tsx              loading placeholder
@@ -802,15 +802,26 @@ instead of one per missed threshold."
 - Create: `src/lib/portfolioSummary.test.ts`
 
 **Interfaces:**
-- Consumes: `CryptoHolding`, `StockHolding`, `StockQuote` from `@/types/portfolio`; `SymbolPrice` from `@/store/priceStore`; `AccountBalance` from `@/types/account`.
+- Consumes: `CryptoHolding`, `StockHolding`, `StockQuote`, `StockPosition`, `StockAccountSummary` from `@/types/portfolio`; `SymbolPrice` from `@/store/priceStore`; `AccountBalance` from `@/types/account`.
 - Produces:
   ```ts
-  export interface ClassSummary { value: number; change24hUsd: number; change24hPercent: number | null; holdingCount: number; unpricedCount: number }
-  export interface HoldingSummary { assetClass: 'crypto' | 'stock' | 'reit'; symbol: string; value: number; changePercent: number | null }
-  export interface PortfolioSummary { total: number; change24hUsd: number; change24hPercent: number | null; asOf: number | null; classes: Record<'crypto' | 'stock' | 'reit', ClassSummary>; topHoldings: HoldingSummary[] }
-  export function summarisePortfolio(input: { balance: AccountBalance | null; cryptoHoldings: CryptoHolding[]; prices: Record<string, SymbolPrice>; stocks: StockHolding[]; quotes: Record<string, StockQuote> }): PortfolioSummary
+  export type SummaryClass = 'crypto' | 'stock' | 'reit'
+  export interface ClassSummary { value: number; currency: string; change24hUsd: number; change24hPercent: number | null; holdingCount: number; unpricedCount: number }
+  export interface HoldingSummary { assetClass: SummaryClass; symbol: string; value: number; currency: string; changePercent: number | null }
+  export interface PortfolioSummary {
+    total: number; totalCurrency: string; isMixedCurrency: boolean
+    change24hUsd: number; change24hPercent: number | null; asOf: number | null
+    classes: Record<SummaryClass, ClassSummary>; topHoldings: HoldingSummary[]
+  }
+  export interface PortfolioSummaryInput {
+    balance: AccountBalance | null; cryptoHoldings: CryptoHolding[]; prices: Record<string, SymbolPrice>
+    stocks: StockHolding[]; quotes: Record<string, StockQuote>
+    positions: Record<string, StockPosition>; account: StockAccountSummary | null; positionsFetchedAt: number | null
+  }
+  export function summarisePortfolio(input: PortfolioSummaryInput): PortfolioSummary
   export const TOP_HOLDINGS_LIMIT = 8
   ```
+- Value rules (same as the current `PortfolioSection`): a stock or REIT is valued at its Trading 212 `currentValue` (account currency) when a position exists, else `quote.price * shares`, else counted as unpriced. Crypto is USD/USDT. `totalCurrency` is the Trading 212 currency when there is no crypto value, else `'USD'`, and `isMixedCurrency` is true when both crypto value and a non-USD Trading 212 account are present.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -818,9 +829,9 @@ Create `src/lib/portfolioSummary.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { summarisePortfolio, TOP_HOLDINGS_LIMIT } from '@/lib/portfolioSummary'
+import { summarisePortfolio, TOP_HOLDINGS_LIMIT, type PortfolioSummaryInput } from '@/lib/portfolioSummary'
 import type { SymbolPrice } from '@/store/priceStore'
-import type { CryptoHolding, StockHolding, StockQuote } from '@/types/portfolio'
+import type { CryptoHolding, StockAccountSummary, StockHolding, StockPosition, StockQuote } from '@/types/portfolio'
 
 function crypto(asset: string, usdtValue: number): CryptoHolding {
   return { asset, symbol: asset === 'USDT' ? 'USDT' : `${asset}USDT`, free: 1, locked: 0, usdtValue }
@@ -831,45 +842,85 @@ function price(changePercent: number): SymbolPrice {
 function quote(ticker: string, p: number, changePercent: number, fetchedAt = 1_000): StockQuote {
   return { ticker, price: p, change: 0, changePercent, high: p, low: p, fetchedAt }
 }
+function position(ticker: string, currentValue: number): StockPosition {
+  return {
+    ticker, t212Ticker: `${ticker}_US_EQ`, name: ticker, quantity: 1, avgPrice: 1, currentPrice: 1,
+    currency: 'USD', currentValue, totalCost: currentValue, unrealizedPnl: 0, fxImpact: 0, openedAt: 1,
+  }
+}
+const gbpAccount: StockAccountSummary = {
+  currency: 'GBP', totalValue: 0, cashAvailable: 0, cashInPies: 0, cashReserved: 0,
+  invested: 0, investedCost: 0, unrealizedPnl: 0, realizedPnl: 0,
+}
+const empty: PortfolioSummaryInput = {
+  balance: null, cryptoHoldings: [], prices: {}, stocks: [], quotes: {}, positions: {}, account: null, positionsFetchedAt: null,
+}
 
 describe('summarisePortfolio', () => {
   it('returns zeros for empty input', () => {
-    const s = summarisePortfolio({ balance: null, cryptoHoldings: [], prices: {}, stocks: [], quotes: {} })
+    const s = summarisePortfolio(empty)
     expect(s.total).toBe(0)
+    expect(s.totalCurrency).toBe('USD')
+    expect(s.isMixedCurrency).toBe(false)
     expect(s.change24hPercent).toBeNull()
     expect(s.asOf).toBeNull()
     expect(s.topHoldings).toEqual([])
     expect(s.classes.crypto.holdingCount).toBe(0)
   })
 
-  it('totals each class and aggregates 24h change', () => {
+  it('totals each class, preferring Trading 212 values, and aggregates 24h change', () => {
     const holdings = [crypto('BTC', 1_000), crypto('USDT', 500)]
     const stocks: StockHolding[] = [
-      { ticker: 'AAPL', assetClass: 'stock', shares: 10 },
+      { ticker: 'AAPL', assetClass: 'stock', shares: 10, source: 'trading212' },
       { ticker: 'O', assetClass: 'reit', shares: 4 },
       { ticker: 'MSFT', assetClass: 'stock' },
     ]
     const s = summarisePortfolio({
+      ...empty,
       balance: { holdings, totalUsdtValue: 1_500, fetchedAt: 2_000 },
       cryptoHoldings: holdings,
       prices: { BTCUSDT: price(10) },
       stocks,
       quotes: { AAPL: quote('AAPL', 20, -5, 3_000), O: quote('O', 50, 2) },
+      positions: { AAPL: position('AAPL', 250) },   // wins over 10 x 20
+      account: { ...gbpAccount, currency: 'USD' },
+      positionsFetchedAt: 4_000,
     })
 
     expect(s.classes.crypto.value).toBe(1_500)
-    expect(s.classes.crypto.change24hUsd).toBeCloseTo(100)  // BTC 1000 * 10%, USDT no price
-    expect(s.classes.stock.value).toBe(200)
-    expect(s.classes.stock.change24hUsd).toBeCloseTo(-10)
+    expect(s.classes.crypto.change24hUsd).toBeCloseTo(100)   // BTC 1000 x 10%, USDT has no price entry
+    expect(s.classes.stock.value).toBe(250)
+    expect(s.classes.stock.change24hUsd).toBeCloseTo(-12.5)  // quote change applied to the T212 value
     expect(s.classes.stock.holdingCount).toBe(2)
     expect(s.classes.stock.unpricedCount).toBe(1)
     expect(s.classes.reit.value).toBe(200)
     expect(s.classes.reit.change24hUsd).toBeCloseTo(4)
 
-    expect(s.total).toBe(1_900)
-    expect(s.change24hUsd).toBeCloseTo(94)
-    expect(s.change24hPercent).toBeCloseTo((94 / (1_900 - 94)) * 100)
-    expect(s.asOf).toBe(3_000)
+    expect(s.total).toBe(1_950)
+    expect(s.totalCurrency).toBe('USD')
+    expect(s.isMixedCurrency).toBe(false)
+    expect(s.change24hUsd).toBeCloseTo(91.5)
+    expect(s.change24hPercent).toBeCloseTo((91.5 / (1_950 - 91.5)) * 100)
+    expect(s.asOf).toBe(4_000)
+  })
+
+  it('reports the Trading 212 currency and flags a mix with crypto', () => {
+    const stocks: StockHolding[] = [{ ticker: 'VUSA', assetClass: 'stock', shares: 1, source: 'trading212' }]
+    const onlyStocks = summarisePortfolio({
+      ...empty, stocks, positions: { VUSA: position('VUSA', 300) }, account: gbpAccount,
+    })
+    expect(onlyStocks.totalCurrency).toBe('GBP')
+    expect(onlyStocks.isMixedCurrency).toBe(false)
+    expect(onlyStocks.classes.stock.currency).toBe('GBP')
+    expect(onlyStocks.topHoldings[0]?.currency).toBe('GBP')
+
+    const holdings = [crypto('BTC', 100)]
+    const mixed = summarisePortfolio({
+      ...empty, balance: { holdings, totalUsdtValue: 100, fetchedAt: 1 }, cryptoHoldings: holdings,
+      stocks, positions: { VUSA: position('VUSA', 300) }, account: gbpAccount,
+    })
+    expect(mixed.totalCurrency).toBe('USD')
+    expect(mixed.isMixedCurrency).toBe(true)
   })
 
   it('ranks top holdings across classes and truncates', () => {
@@ -877,11 +928,7 @@ describe('summarisePortfolio', () => {
     const stocks: StockHolding[] = Array.from({ length: 6 }, (_, i) => ({ ticker: `S${i}`, assetClass: 'stock', shares: 1 }))
     const quotes = Object.fromEntries(stocks.map((st, i) => [st.ticker, quote(st.ticker, 200 + i, 0)]))
     const s = summarisePortfolio({
-      balance: { holdings, totalUsdtValue: 0, fetchedAt: 1 },
-      cryptoHoldings: holdings,
-      prices: {},
-      stocks,
-      quotes,
+      ...empty, balance: { holdings, totalUsdtValue: 0, fetchedAt: 1 }, cryptoHoldings: holdings, stocks, quotes,
     })
     expect(s.topHoldings).toHaveLength(TOP_HOLDINGS_LIMIT)
     expect(s.topHoldings[0]?.symbol).toBe('S5')
@@ -900,7 +947,7 @@ Expected: FAIL, module not found.
 
 ```ts
 import type { AccountBalance } from '@/types/account'
-import type { CryptoHolding, StockHolding, StockQuote } from '@/types/portfolio'
+import type { CryptoHolding, StockAccountSummary, StockHolding, StockPosition, StockQuote } from '@/types/portfolio'
 import type { SymbolPrice } from '@/store/priceStore'
 
 export const TOP_HOLDINGS_LIMIT = 8
@@ -909,21 +956,25 @@ export type SummaryClass = 'crypto' | 'stock' | 'reit'
 
 export interface ClassSummary {
   value: number
-  change24hUsd: number
+  currency: string
+  change24hUsd: number        // in the class currency; named for parity with crypto
   change24hPercent: number | null
   holdingCount: number
-  unpricedCount: number   // stocks without a share count or quote
+  unpricedCount: number       // no Trading 212 position and no (quote x shares)
 }
 
 export interface HoldingSummary {
   assetClass: SummaryClass
   symbol: string
   value: number
+  currency: string
   changePercent: number | null
 }
 
 export interface PortfolioSummary {
   total: number
+  totalCurrency: string
+  isMixedCurrency: boolean
   change24hUsd: number
   change24hPercent: number | null
   asOf: number | null
@@ -937,20 +988,25 @@ export interface PortfolioSummaryInput {
   prices: Record<string, SymbolPrice>
   stocks: StockHolding[]
   quotes: Record<string, StockQuote>
+  positions: Record<string, StockPosition>
+  account: StockAccountSummary | null
+  positionsFetchedAt: number | null
 }
 
-function percentChange(value: number, changeUsd: number): number | null {
-  const previous = value - changeUsd
+const USD = 'USD'
+
+function percentChange(value: number, change: number): number | null {
+  const previous = value - change
   if (previous <= 0) return null
-  return (changeUsd / previous) * 100
+  return (change / previous) * 100
 }
 
-function emptyClass(): ClassSummary {
-  return { value: 0, change24hUsd: 0, change24hPercent: null, holdingCount: 0, unpricedCount: 0 }
+function emptyClass(currency: string): ClassSummary {
+  return { value: 0, currency, change24hUsd: 0, change24hPercent: null, holdingCount: 0, unpricedCount: 0 }
 }
 
 function summariseCrypto(input: PortfolioSummaryInput): { summary: ClassSummary; holdings: HoldingSummary[] } {
-  const summary = emptyClass()
+  const summary = emptyClass(USD)
   const holdings: HoldingSummary[] = []
 
   for (const h of input.cryptoHoldings) {
@@ -958,7 +1014,7 @@ function summariseCrypto(input: PortfolioSummaryInput): { summary: ClassSummary;
     const changePercent = input.prices[h.symbol]?.changePercent ?? null
     summary.holdingCount += 1
     summary.change24hUsd += changePercent === null ? 0 : (value * changePercent) / 100
-    holdings.push({ assetClass: 'crypto', symbol: h.asset, value, changePercent })
+    holdings.push({ assetClass: 'crypto', symbol: h.asset, value, currency: USD, changePercent })
   }
 
   // The balance endpoint already sums holdings; prefer it so the hero matches the Crypto tab.
@@ -967,25 +1023,36 @@ function summariseCrypto(input: PortfolioSummaryInput): { summary: ClassSummary;
   return { summary, holdings }
 }
 
+// Trading 212 reports value in the account currency; quote x shares is the
+// fallback for watchlist tickers with a manual share count.
+function equityValue(h: StockHolding, input: PortfolioSummaryInput): number | null {
+  const p = input.positions[h.ticker]
+  if (p !== undefined) return p.currentValue
+  const q = input.quotes[h.ticker]
+  if (q === undefined || h.shares === undefined || h.shares <= 0) return null
+  return q.price * h.shares
+}
+
 function summariseEquities(
   input: PortfolioSummaryInput,
   assetClass: 'stock' | 'reit',
+  currency: string,
 ): { summary: ClassSummary; holdings: HoldingSummary[] } {
-  const summary = emptyClass()
+  const summary = emptyClass(currency)
   const holdings: HoldingSummary[] = []
 
   for (const s of input.stocks) {
     if (s.assetClass !== assetClass) continue
     summary.holdingCount += 1
-    const quote = input.quotes[s.ticker]
-    if (quote === undefined || s.shares === undefined || s.shares <= 0) {
+    const value = equityValue(s, input)
+    if (value === null) {
       summary.unpricedCount += 1
       continue
     }
-    const value = quote.price * s.shares
+    const changePercent = input.quotes[s.ticker]?.changePercent ?? null
     summary.value += value
-    summary.change24hUsd += (value * quote.changePercent) / 100
-    holdings.push({ assetClass, symbol: s.ticker, value, changePercent: quote.changePercent })
+    summary.change24hUsd += changePercent === null ? 0 : (value * changePercent) / 100
+    holdings.push({ assetClass, symbol: s.ticker, value, currency, changePercent })
   }
 
   summary.change24hPercent = percentChange(summary.value, summary.change24hUsd)
@@ -994,19 +1061,27 @@ function summariseEquities(
 
 function latestTimestamp(input: PortfolioSummaryInput): number | null {
   let latest: number | null = input.balance?.fetchedAt ?? null
-  for (const q of Object.values(input.quotes)) {
-    if (latest === null || q.fetchedAt > latest) latest = q.fetchedAt
+  const consider = (ts: number | null) => {
+    if (ts !== null && (latest === null || ts > latest)) latest = ts
   }
+  for (const q of Object.values(input.quotes)) consider(q.fetchedAt)
+  consider(input.positionsFetchedAt)
   return latest
 }
 
 export function summarisePortfolio(input: PortfolioSummaryInput): PortfolioSummary {
+  const stockCurrency = input.account?.currency ?? USD
   const crypto = summariseCrypto(input)
-  const stock = summariseEquities(input, 'stock')
-  const reit = summariseEquities(input, 'reit')
+  const stock = summariseEquities(input, 'stock', stockCurrency)
+  const reit = summariseEquities(input, 'reit', stockCurrency)
 
   const total = crypto.summary.value + stock.summary.value + reit.summary.value
   const change24hUsd = crypto.summary.change24hUsd + stock.summary.change24hUsd + reit.summary.change24hUsd
+
+  // With no crypto the total is purely in the Trading 212 currency; otherwise
+  // it is a USD-labelled mix and the UI shows a note.
+  const totalCurrency = crypto.summary.value === 0 ? stockCurrency : USD
+  const isMixedCurrency = crypto.summary.value > 0 && input.account !== null && stockCurrency !== USD
 
   const topHoldings = [...crypto.holdings, ...stock.holdings, ...reit.holdings]
     .filter((h) => h.value > 0)
@@ -1015,6 +1090,8 @@ export function summarisePortfolio(input: PortfolioSummaryInput): PortfolioSumma
 
   return {
     total,
+    totalCurrency,
+    isMixedCurrency,
     change24hUsd,
     change24hPercent: percentChange(total, change24hUsd),
     asOf: latestTimestamp(input),
@@ -1037,7 +1114,8 @@ git add src/lib/portfolioSummary.ts src/lib/portfolioSummary.test.ts
 git commit -m "Compute cross-class portfolio totals in one pure module
 
 The Overview needs the same numbers in a hero, three cards, a bar, and
-a ranked list; deriving them once keeps those views consistent."
+a ranked list; deriving them once keeps those views consistent and keeps
+the Trading 212 value-over-quote rule in a single place."
 ```
 
 ---
@@ -1127,6 +1205,11 @@ BINANCE_API_SECRET=
 
 # Finnhub
 FINNHUB_API_KEY=
+
+# Trading 212 (read scopes only)
+TRADING212_API_KEY=
+TRADING212_API_SECRET=
+TRADING212_ENV=live
 
 # Anthropic (chat assistant)
 ANTHROPIC_API_KEY=
@@ -2437,7 +2520,7 @@ without a second round trip."
 - Create: `src/components/tax/TaxSection.tsx` (placeholder in this task, filled in Task 10)
 
 **Interfaces:**
-- Consumes: `summarisePortfolio`, `PortfolioSummary`, `ClassSummary`, `HoldingSummary`, `SummaryClass` from Task 4; existing stores.
+- Consumes: `summarisePortfolio`, `PortfolioSummary`, `ClassSummary`, `HoldingSummary`, `SummaryClass` from Task 4; `formatMoney(value, currency)`, `formatPercent`, `formatTimestamp` from `@/lib/formatters`; stores `balanceStore`, `cryptoHoldingsStore`, `priceStore`, `portfolioStore`, `stockQuoteStore`, `stockPositionsStore`.
 - Produces: `DashboardTab = 'overview' | 'crypto' | 'stocks' | 'reits' | 'tax'`; `usePortfolioSummary(): PortfolioSummary`; `OverviewSection`; `TaxSection` (placeholder export replaced in Task 10). The Overview reserves a slot at the top for `TaxDeadlineBanner` (Task 11).
 
 - [ ] **Step 1: Update navigation**
@@ -2471,7 +2554,7 @@ const TABS: { id: DashboardTab; label: string }[] = [
         {activeTab === 'tax'      && <TaxSection />}
 ```
 
-Delete `src/components/portfolio/PortfolioSection.tsx` (`git rm src/components/portfolio/PortfolioSection.tsx`).
+Delete `src/components/portfolio/PortfolioSection.tsx` (`git rm src/components/portfolio/PortfolioSection.tsx`). Its Trading 212 account block (account value, cash, unrealized P&L) is carried into the Stocks class card's detail line below; the crypto per-asset list is covered by Top holdings.
 
 Create a placeholder `src/components/tax/TaxSection.tsx` so the build passes until Task 10:
 
@@ -2489,6 +2572,7 @@ import { useBalanceStore } from '@/store/balanceStore'
 import { useCryptoHoldingsStore } from '@/store/cryptoHoldingsStore'
 import { usePriceStore } from '@/store/priceStore'
 import { usePortfolioStore } from '@/store/portfolioStore'
+import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useStockQuoteStore } from '@/store/stockQuoteStore'
 import { summarisePortfolio, type PortfolioSummary } from '@/lib/portfolioSummary'
 
@@ -2498,10 +2582,13 @@ export function usePortfolioSummary(): PortfolioSummary {
   const prices = usePriceStore((s) => s.prices)
   const stocks = usePortfolioStore((s) => s.stocks)
   const quotes = useStockQuoteStore((s) => s.quotes)
+  const positions = useStockPositionsStore((s) => s.positions)
+  const account = useStockPositionsStore((s) => s.account)
+  const positionsFetchedAt = useStockPositionsStore((s) => s.fetchedAt)
 
   return useMemo(
-    () => summarisePortfolio({ balance, cryptoHoldings, prices, stocks, quotes }),
-    [balance, cryptoHoldings, prices, stocks, quotes],
+    () => summarisePortfolio({ balance, cryptoHoldings, prices, stocks, quotes, positions, account, positionsFetchedAt }),
+    [balance, cryptoHoldings, prices, stocks, quotes, positions, account, positionsFetchedAt],
   )
 }
 ```
@@ -2522,7 +2609,7 @@ export function SkeletonBlock({ className = '' }: SkeletonBlockProps) {
 
 ```tsx
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
-import { formatPercent, formatPrice, formatTimestamp } from '@/lib/formatters'
+import { formatMoney, formatPercent, formatTimestamp } from '@/lib/formatters'
 import type { PortfolioSummary } from '@/lib/portfolioSummary'
 
 interface PortfolioHeroProps {
@@ -2535,6 +2622,7 @@ export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps)
   const showSkeleton = isLoading && summary.asOf === null
   const isPositive = summary.change24hUsd >= 0
   const changeColor = isPositive ? 'text-bull-green' : 'text-bear-red'
+  const stockCurrency = summary.classes.stock.currency
 
   return (
     <section className="bg-panel-bg border border-panel-border rounded-lg p-5 relative overflow-hidden">
@@ -2549,11 +2637,11 @@ export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps)
       ) : (
         <>
           <div className="mt-2 text-4xl md:text-5xl font-mono font-bold text-text-primary tabular-nums">
-            {formatPrice(summary.total)}
+            {formatMoney(summary.total, summary.totalCurrency)}
           </div>
           <div className="mt-2 flex items-baseline gap-3 font-mono text-sm">
             <span className={changeColor}>
-              {isPositive ? '+' : ''}{formatPrice(summary.change24hUsd)}
+              {isPositive ? '+' : ''}{formatMoney(summary.change24hUsd, summary.totalCurrency)}
             </span>
             {summary.change24hPercent !== null && (
               <span className={`${changeColor} text-xs`}>{formatPercent(summary.change24hPercent)}</span>
@@ -2563,6 +2651,11 @@ export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps)
               <span className="ml-auto text-text-muted text-[11px]">as of {formatTimestamp(summary.asOf)}</span>
             )}
           </div>
+          {summary.isMixedCurrency && (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Stocks and REITs are in {stockCurrency} (Trading 212 account currency); crypto is in USDT. The total mixes both.
+            </p>
+          )}
         </>
       )}
 
@@ -2579,7 +2672,7 @@ export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps)
 ```tsx
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
 import { useNavigationStore, type DashboardTab } from '@/store/navigationStore'
-import { formatPercent, formatPrice } from '@/lib/formatters'
+import { formatMoney, formatPercent } from '@/lib/formatters'
 import type { ClassSummary } from '@/lib/portfolioSummary'
 
 interface AssetClassCardProps {
@@ -2589,9 +2682,10 @@ interface AssetClassCardProps {
   total: number
   accentClass: string     // e.g. 'bg-btc-orange'
   isLoading: boolean
+  detail?: string         // one extra line, e.g. Trading 212 cash and P&L
 }
 
-export function AssetClassCard({ label, tab, summary, total, accentClass, isLoading }: AssetClassCardProps) {
+export function AssetClassCard({ label, tab, summary, total, accentClass, isLoading, detail }: AssetClassCardProps) {
   const setActiveTab = useNavigationStore((s) => s.setActiveTab)
   const share = total > 0 ? (summary.value / total) * 100 : 0
   const isPositive = summary.change24hUsd >= 0
@@ -2602,7 +2696,7 @@ export function AssetClassCard({ label, tab, summary, total, accentClass, isLoad
     <button
       type="button"
       onClick={() => setActiveTab(tab)}
-      className="text-left bg-panel-bg border border-panel-border rounded-lg p-4 hover:border-text-muted/60 transition-colors group"
+      className="text-left bg-panel-bg border border-panel-border rounded-lg p-4 hover:border-text-muted/60 transition-colors group flex flex-col"
     >
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${accentClass}`} />
@@ -2620,7 +2714,9 @@ export function AssetClassCard({ label, tab, summary, total, accentClass, isLoad
       ) : (
         <>
           <div className="mt-3 text-2xl font-mono font-semibold text-text-primary tabular-nums">
-            {allUnpriced ? <span className="text-text-muted text-base">Unpriced</span> : formatPrice(summary.value)}
+            {allUnpriced
+              ? <span className="text-text-muted text-base">Unpriced</span>
+              : formatMoney(summary.value, summary.currency)}
           </div>
           <div className="mt-1 flex items-baseline gap-2 font-mono text-xs">
             <span className="text-text-muted">{formatPercent(share, false)} of total</span>
@@ -2631,15 +2727,18 @@ export function AssetClassCard({ label, tab, summary, total, accentClass, isLoad
             )}
           </div>
           {allUnpriced && (
-            <p className="mt-2 text-[11px] text-text-muted">Add share counts to price these.</p>
+            <p className="mt-2 text-[11px] text-text-muted">Connect Trading 212 or add share counts to price these.</p>
           )}
           {!allUnpriced && summary.unpricedCount > 0 && (
-            <p className="mt-2 text-[11px] text-text-muted">{summary.unpricedCount} without share counts.</p>
+            <p className="mt-2 text-[11px] text-text-muted">{summary.unpricedCount} without a position or share count.</p>
+          )}
+          {detail !== undefined && (
+            <p className="mt-2 text-[11px] text-text-muted font-mono">{detail}</p>
           )}
         </>
       )}
 
-      <div className="mt-3 text-[11px] font-mono text-text-muted group-hover:text-text-primary transition-colors">
+      <div className="mt-auto pt-3 text-[11px] font-mono text-text-muted group-hover:text-text-primary transition-colors">
         View {label} →
       </div>
     </button>
@@ -2671,11 +2770,16 @@ export function AllocationBar({ summary }: AllocationBarProps) {
   }))
 
   return (
-    <section className="bg-panel-bg border border-panel-border rounded-lg p-4">
+    <section className="bg-panel-bg border border-panel-border rounded-lg p-4 h-full">
       <div className="text-xs text-text-muted font-mono mb-3">Allocation</div>
       <div className="h-2.5 rounded-full overflow-hidden bg-terminal-bg flex">
         {segments.map((s) => (
-          <div key={s.key} className={`${s.color} h-full`} style={{ width: `${s.pct.toFixed(2)}%` }} title={`${s.label} ${formatPercent(s.pct, false)}`} />
+          <div
+            key={s.key}
+            className={`${s.color} h-full`}
+            style={{ width: `${s.pct.toFixed(2)}%` }}
+            title={`${s.label} ${formatPercent(s.pct, false)}`}
+          />
         ))}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs">
@@ -2689,8 +2793,11 @@ export function AllocationBar({ summary }: AllocationBarProps) {
       </div>
       {total === 0 && (
         <p className="mt-3 text-[11px] text-text-muted">
-          Nothing priced yet. Crypto loads from Binance; stocks and REITs need share counts.
+          Nothing priced yet. Crypto loads from Binance and stocks from Trading 212 once their API keys are set.
         </p>
+      )}
+      {summary.isMixedCurrency && (
+        <p className="mt-3 text-[11px] text-text-muted">Shares mix USDT and {summary.classes.stock.currency} at face value.</p>
       )}
     </section>
   )
@@ -2700,7 +2807,7 @@ export function AllocationBar({ summary }: AllocationBarProps) {
 - [ ] **Step 7: Write `src/components/overview/TopHoldingsList.tsx`**
 
 ```tsx
-import { formatPercent, formatPrice } from '@/lib/formatters'
+import { formatMoney, formatPercent } from '@/lib/formatters'
 import type { HoldingSummary, SummaryClass } from '@/lib/portfolioSummary'
 
 interface TopHoldingsListProps {
@@ -2716,7 +2823,7 @@ const CLASS_TAG: Record<SummaryClass, { label: string; className: string }> = {
 
 export function TopHoldingsList({ holdings, total }: TopHoldingsListProps) {
   return (
-    <section className="bg-panel-bg border border-panel-border rounded-lg p-4">
+    <section className="bg-panel-bg border border-panel-border rounded-lg p-4 h-full">
       <div className="text-xs text-text-muted font-mono mb-3">Top holdings</div>
       {holdings.length === 0 ? (
         <p className="text-[11px] text-text-muted">No priced holdings yet.</p>
@@ -2734,7 +2841,7 @@ export function TopHoldingsList({ holdings, total }: TopHoldingsListProps) {
                     {formatPercent(h.changePercent)}
                   </span>
                 )}
-                <span className="ml-auto text-text-primary tabular-nums">{formatPrice(h.value)}</span>
+                <span className="ml-auto text-text-primary tabular-nums">{formatMoney(h.value, h.currency)}</span>
                 <span className="w-14 text-right text-text-muted tabular-nums">{formatPercent(share, false)}</span>
               </li>
             )
@@ -2754,7 +2861,9 @@ import { AssetClassCard } from '@/components/overview/AssetClassCard'
 import { PortfolioHero } from '@/components/overview/PortfolioHero'
 import { TopHoldingsList } from '@/components/overview/TopHoldingsList'
 import { usePortfolioSummary } from '@/hooks/usePortfolioSummary'
+import { formatMoney } from '@/lib/formatters'
 import { useBalanceStore } from '@/store/balanceStore'
+import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useStockQuoteStore } from '@/store/stockQuoteStore'
 
 export function OverviewSection() {
@@ -2763,9 +2872,19 @@ export function OverviewSection() {
   const balanceError = useBalanceStore((s) => s.error)
   const quotesLoading = useStockQuoteStore((s) => s.isLoading)
   const quotesError = useStockQuoteStore((s) => s.error)
+  const positionsLoading = useStockPositionsStore((s) => s.isLoading)
+  const positionsError = useStockPositionsStore((s) => s.error)
+  const account = useStockPositionsStore((s) => s.account)
 
-  const isLoading = balanceLoading || quotesLoading
-  const error = balanceError ?? quotesError
+  const equitiesLoading = quotesLoading || positionsLoading
+  const isLoading = balanceLoading || equitiesLoading
+  const error = balanceError ?? positionsError ?? quotesError
+
+  let tradingDetail: string | undefined
+  if (account !== null) {
+    const sign = account.unrealizedPnl >= 0 ? '+' : ''
+    tradingDetail = `Trading 212 · cash ${formatMoney(account.cashAvailable, account.currency)} · ${sign}${formatMoney(account.unrealizedPnl, account.currency)} unrealized`
+  }
 
   return (
     <div className="p-3 md:p-4 flex flex-col gap-3 max-w-6xl w-full mx-auto">
@@ -2774,8 +2893,8 @@ export function OverviewSection() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <AssetClassCard label="Crypto" tab="crypto" summary={summary.classes.crypto} total={summary.total} accentClass="bg-btc-orange" isLoading={balanceLoading} />
-        <AssetClassCard label="Stocks" tab="stocks" summary={summary.classes.stock}  total={summary.total} accentClass="bg-bull-green" isLoading={quotesLoading} />
-        <AssetClassCard label="REITs"  tab="reits"  summary={summary.classes.reit}   total={summary.total} accentClass="bg-blue-400"  isLoading={quotesLoading} />
+        <AssetClassCard label="Stocks" tab="stocks" summary={summary.classes.stock}  total={summary.total} accentClass="bg-bull-green" isLoading={equitiesLoading} {...(tradingDetail === undefined ? {} : { detail: tradingDetail })} />
+        <AssetClassCard label="REITs"  tab="reits"  summary={summary.classes.reit}   total={summary.total} accentClass="bg-blue-400"  isLoading={equitiesLoading} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
@@ -2787,13 +2906,15 @@ export function OverviewSection() {
 }
 ```
 
+The spread for `detail` is deliberate: `exactOptionalPropertyTypes` rejects passing `detail={undefined}` to an optional prop.
+
 - [ ] **Step 9: Typecheck, lint, and look at it**
 
 ```bash
 npm run typecheck && npm run lint
 ```
 
-Then `npm run dev`, open `http://localhost:8888`, log in, and check: Overview is the landing tab; hero shows total; class cards switch tabs; allocation bar sums to 100% when priced; the old Portfolio tab is gone. On a narrow window (375px) cards stack and nothing overflows horizontally. Fix anything off before committing.
+Then `npm run dev`, open `http://localhost:8888`, log in, and check: Overview is the landing tab; hero shows the total in the right currency (Trading 212 currency when there is no crypto, USD otherwise, with the mixed-currency note); the Stocks card shows the Trading 212 cash and P&L line; class cards switch tabs; allocation bar sums to 100% when priced; the old Portfolio tab is gone. On a narrow window (375px) cards stack and nothing overflows horizontally. Fix anything off before committing.
 
 - [ ] **Step 10: Commit**
 
@@ -2804,7 +2925,8 @@ git commit -m "Land on an Overview of crypto, stocks, and REITs
 
 The first screen should answer \"what am I worth right now\" across every
 asset class instead of dropping into the BTC chart. The Portfolio tab's
-allocation view moves into the Overview so there is one summary, not two."
+allocation and Trading 212 summary move into the Overview so there is one
+summary, not two."
 ```
 
 ---
@@ -3456,7 +3578,7 @@ also unblocks the existing price alerts."
 
 - Project Description: add "an Overview landing tab summarising crypto, stocks, and REITs, and a Tax tab for PH 8% flat-rate income tax with BIR deadline reminders."
 - Tech Stack table: add `| Database | Supabase (Postgres, tax records only) | n/a |` and `| Tests | Vitest | n/a |`.
-- Netlify Functions table: add rows for `tax-entries.ts` (`GET/POST/PUT/DELETE /api/tax-entries`, Session, "Tax receipts in Supabase"), `tax-filings.ts` (`GET/PUT/DELETE /api/tax-filings`, Session, "Filed periods"), `utils/supabase-client.ts`, `utils/tax-repo.ts`, `utils/tax-validation.ts`.
+- Netlify Functions table (already lists `stock-positions.ts` and `utils/trading212-client.ts`; keep them): add rows for `tax-entries.ts` (`GET/POST/PUT/DELETE /api/tax-entries`, Session, "Tax receipts in Supabase"), `tax-filings.ts` (`GET/PUT/DELETE /api/tax-filings`, Session, "Filed periods"), `utils/supabase-client.ts`, `utils/tax-repo.ts`, `utils/tax-validation.ts`.
 - Frontend structure: add `types/tax.ts`, `store/taxStore.ts`, `hooks/useTaxData.ts`, `hooks/useTaxDeadlines.ts`, `hooks/usePortfolioSummary.ts`, `lib/tax.ts`, `lib/taxNotifications.ts`, `lib/portfolioSummary.ts`, `lib/taxApi.ts`, `components/overview/`, `components/tax/`, `components/ui/`. Remove `components/portfolio/` and `BalanceCard`, `PriceTicker`, `AlertForm` entries that no longer exist.
 - Commands: fix the `cd` path to `/home/jed/jed/meridian` and add `npm test`.
 - Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` with the note "service role key, server-side only, never `VITE_`".
@@ -3502,7 +3624,7 @@ and explain the boundary so the next change does not widen it."
 ## Self-review
 
 **Spec coverage**
-- Overview layout (banner, hero, class cards, allocation, top holdings, states): Task 9 and Task 11.
+- Overview layout (banner, hero, class cards, allocation, top holdings, states, Trading 212 currency handling): Task 9 and Task 11.
 - Navigation default and Portfolio removal: Task 9.
 - Tax constants, types, math, weekend rollover, cumulative credit, statuses, next actionable: Task 2.
 - Supabase schema, RLS, env vars, functions, validation rules: Tasks 5, 6, 7.

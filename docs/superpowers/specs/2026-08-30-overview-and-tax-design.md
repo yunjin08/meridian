@@ -50,7 +50,9 @@ Two additions to the investing dashboard:
 All values derive from existing stores. No new network calls.
 
 - Crypto: `balanceStore.balance.totalUsdtValue`, holdings from `cryptoHoldingsStore`, 24h change per asset from `priceStore.prices[symbol].changePercent`.
-- Stocks / REITs: `portfolioStore.stocks` filtered by `assetClass`, priced with `stockQuoteStore.quotes[ticker].price * shares`. Holdings without `shares` contribute zero and are counted separately as "unpriced".
+- Portfolio tab removal carries its Trading 212 summary block into the Overview; the per-asset crypto list is covered by Top holdings.
+- Stocks / REITs: `portfolioStore.stocks` filtered by `assetClass`. A holding is valued at its Trading 212 position `currentValue` (account currency, from `stockPositionsStore`) when one exists, else `stockQuoteStore.quotes[ticker].price * shares`; holdings with neither are counted as "unpriced". Trading 212 account cash and unrealized P&L appear as a detail line on the Stocks card.
+- Currency: crypto is USD/USDT, stocks and REITs are in the Trading 212 account currency. The hero shows the Trading 212 currency when there is no crypto value, otherwise USD with a note that the total mixes currencies (same rule as the current Portfolio tab).
 - 24h change per class = Σ(value × changePercent / 100) over priced holdings.
 
 A new pure helper `src/lib/portfolioSummary.ts` takes the store slices and returns `{ total, change24h, classes: { crypto, stock, reit }, topHoldings }`. It is unit tested.
