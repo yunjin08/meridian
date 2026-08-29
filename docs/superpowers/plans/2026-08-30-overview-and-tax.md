@@ -933,7 +933,7 @@ describe('summarisePortfolio', () => {
     expect(s.topHoldings).toHaveLength(TOP_HOLDINGS_LIMIT)
     expect(s.topHoldings[0]?.symbol).toBe('S5')
     expect(s.topHoldings[0]?.assetClass).toBe('stock')
-    expect(s.topHoldings[7]?.value).toBe(105)
+    expect(s.topHoldings[7]?.value).toBe(104)   // 200..205 fill indices 0-5, then 105, 104
   })
 })
 ```
