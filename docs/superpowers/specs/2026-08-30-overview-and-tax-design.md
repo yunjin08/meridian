@@ -202,20 +202,20 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 
 ### Deadline notifications (`src/hooks/useTaxDeadlines.ts`)
 
-- Derives `summarisePeriods` for the current tax year and, from Jan 1 to Apr 15, also the previous year (whose annual return is still open). Returns `nextActionablePeriod`.
-- On change of the actionable period or of the day, for each threshold in `TAX_NOTIFY_THRESHOLDS_DAYS` where `daysUntil <= threshold`, and once when overdue, calls `sendNotification` unless localStorage has `tax-notified:<year>:<period>:<threshold|overdue>`. Marks it after sending. Uses `requestNotificationPermission` lazily on the first Tax tab visit, matching how alerts already ask.
+- Derives `summarisePeriods` for the current tax year and also for the previous year while its ANNUAL period is unfiled (so an overdue annual return keeps showing after Apr 15). Returns `nextActionablePeriod` across both years.
+- On change of the actionable period or of the day, for each threshold in `TAX_NOTIFY_THRESHOLDS_DAYS` where `daysUntil <= threshold`, and once when overdue, calls `sendNotification` unless localStorage has `tax-notified:<year>:<period>:<threshold|overdue>`. Marks it after sending. Browsers only grant permission from a user gesture, so when `Notification.permission === 'default'` the banner and the Tax tab show an "Enable notifications" button that calls `requestNotificationPermission`. Nothing in the app requests permission today (the old `AlertForm` that did was removed), so this button also unblocks the existing price alerts.
 - Marking a period filed clears its banner immediately (store update, no reload wait).
 
 ## 5. Testing and verification
 
 ### Tooling
 
-Add `vitest` and `@testing-library/react` is not needed; tests target pure modules and function handlers. Add `"test": "vitest run"` to `package.json`. Test files sit next to their subject as `*.test.ts`.
+Add `vitest` as a dev dependency. No DOM testing library: tests target pure modules and function handlers. Add `"test": "vitest run"` to `package.json`. Test files sit next to their subject as `*.test.ts`.
 
 ### Unit tests
 
 - `src/lib/tax.test.ts`
-  - Cumulative gross exactly ₱250,000 yields zero tax; ₱250,000.01 yields ₱0.0008 (rounding rule: tax is computed on centavos, displayed to two decimals).
+  - Cumulative gross exactly ₱250,000 yields zero tax; ₱250,001 yields ₱0.08. Tax is computed in full precision and rounded to centavos only for display.
   - Q1 ₱200k, Q2 ₱100k: Q1 due 0, Q2 due 8% × 50k = 4,000; Q3 with no receipts due 0; Annual due 0 (all paid quarterly).
   - Receipts only in Q4 all land on ANNUAL.
   - Deadline rollover: a year where May 15 is a Saturday resolves to May 17.
