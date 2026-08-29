@@ -173,7 +173,8 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 
 ### Server (`netlify/functions/`)
 
-- `utils/supabase-client.ts`: creates one `@supabase/supabase-js` client per invocation from env, throws a clear error when env is missing. Exposes `SupabaseError` for the handlers.
+- `utils/supabase-client.ts`: creates one `@supabase/supabase-js` client per invocation from env, throws a clear error when env is missing.
+- `utils/tax-repo.ts`: typed table access. Exposes `SupabaseRepoError` for the handlers to catch and map to `badGateway`. Also owns the snake_case → camelCase row mapping (`toEntry` / `toFiling`), centralised here rather than duplicated per handler.
 - `tax-entries.ts`:
   - `GET /api/tax-entries[?year=YYYY]` → `{ entries: TaxIncomeEntry[] }` ordered by `received_on desc, created_at desc`. `year` is an optional four-digit filter; the client loads all rows once so the deadline banner can see the previous year's annual return.
   - `POST /api/tax-entries` with `{ receivedOn, source, amountPhp, note? }` → `{ entry }`.
@@ -183,7 +184,7 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
   - `GET /api/tax-filings[?year=YYYY]` → `{ filings: TaxFiling[] }`.
   - `PUT /api/tax-filings` with `{ taxYear, period, filedOn, amountPaidPhp }` → upsert, returns `{ filing }`.
   - `DELETE /api/tax-filings?year=YYYY&period=Q1` → 204 (unmark as filed).
-- Every handler: `OPTIONS` preflight, `requireAuth`, method dispatch with `methodNotAllowed`, body validation returning `badRequest` with a specific message, Supabase failures returning `badGateway('supabase_error', { msg })`. Column names are mapped snake_case → camelCase in one `toEntry` / `toFiling` function per file.
+- Every handler: `OPTIONS` preflight, `requireAuth`, method dispatch with `methodNotAllowed`, body validation returning `badRequest` with a specific message, Supabase failures returning `badGateway('supabase_error', { msg })`.
 - Validation rules: `receivedOn` matches `^\d{4}-\d{2}-\d{2}$` and parses to a real date; `source` non-empty, ≤ 120 chars; `amountPhp` finite, ≥ 0, ≤ 1e12; `note` ≤ 500 chars or null; `period` one of the four values; `taxYear` between 2000 and 2100.
 
 ### Client
@@ -204,7 +205,7 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 
 ### Deadline notifications (`src/hooks/useTaxDeadlines.ts`)
 
-- Derives `summarisePeriods` for the current tax year and also for the previous year while its ANNUAL period is unfiled (so an overdue annual return keeps showing after Apr 15). Returns `nextActionablePeriod` across both years.
+- Derives `summarisePeriods` for the current tax year and also for the previous year while its ANNUAL period is unfiled (so an overdue annual return keeps showing after Apr 15), but only for a year with at least one receipt or filing. `nextActionablePeriod` takes only the resulting summaries (not the raw entries or filings) and returns the earliest overdue or due_soon one across both years. A year with no receipts and no filings produces no banner and no notification, even past its statutory deadlines.
 - On change of the actionable period, finds the thresholds in `TAX_NOTIFY_THRESHOLDS_DAYS` where `daysUntil <= threshold` (or the single `overdue` marker). If any is unmarked in localStorage (`tax-notified:<year>:<period>:<threshold|overdue>`), sends one notification for the smallest threshold and marks all of them, so opening the app late yields one notice, not several. Markers are written only while permission is granted. Browsers only grant permission from a user gesture, so when `Notification.permission === 'default'` the banner and the Tax tab show an "Enable notifications" button that calls `requestNotificationPermission`. Nothing in the app requests permission today (the old `AlertForm` that did was removed), so this button also unblocks the existing price alerts.
 - Marking a period filed clears its banner immediately (store update, no reload wait).
 

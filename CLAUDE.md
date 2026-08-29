@@ -53,7 +53,7 @@ Browser ──► GET /api/balance ──► Netlify Function ──► Binance 
 
 ### Netlify Functions
 
-All functions live in `netlify/functions/`. Files prefixed `_` are shared modules, not endpoints.
+All functions live in `netlify/functions/`. Shared modules live in `utils/`, not at the top level, so zisi (the Netlify Functions bundler) never mistakes them for endpoints.
 
 | File | Endpoint | Auth | Purpose |
 |------|----------|------|---------|
@@ -68,8 +68,8 @@ All functions live in `netlify/functions/`. Files prefixed `_` are shared module
 | `utils/supabase-client.ts` | — | — | Supabase service-role client + row types |
 | `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Supabase |
 | `utils/tax-validation.ts` | — | — | Request body/param validation for tax handlers |
-| `_binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
-| `_indicators.ts` | — | — | RSI/MACD/BB calculation |
+| `utils/binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
+| `utils/indicators.ts` | — | — | RSI/MACD/BB calculation |
 
 ### Frontend structure
 
@@ -230,7 +230,7 @@ Create the Trading 212 API key with only the `account` and `portfolio` scopes. I
 
 5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
-6. **Netlify Functions have a separate `tsconfig.json` and `package.json`.** The functions directory at `netlify/functions/` has its own `tsconfig.json` (NodeNext module resolution, not bundler mode) and its own `node_modules` for `technicalindicators` and `@types/node`.
+6. **Netlify Functions have a separate `tsconfig.json`.** The functions directory at `netlify/functions/` has its own `tsconfig.json` (NodeNext module resolution, `allowImportingTsExtensions`, not bundler mode). It has no `package.json` or `node_modules` of its own; it shares the root `package.json` and dependencies.
 
 7. **lightweight-charts v5 API.** Use `chart.addSeries(CandlestickSeries, options)` — not `chart.addCandlestickSeries()`. The v5 API changed this.
 
