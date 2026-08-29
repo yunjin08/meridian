@@ -25,9 +25,15 @@ BINANCE_API_KEY=your_api_key_here
 BINANCE_API_SECRET=your_api_secret_here
 AUTH_PASSWORD_HASH=your_scrypt_hash_here
 AUTH_SESSION_SECRET=your_random_session_secret_here
+
+# Trading 212 (stocks/REITs positions). Optional: TRADING212_ENV=demo for paper trading.
+TRADING212_API_KEY=your_trading212_key
+TRADING212_API_SECRET=your_trading212_secret
 ```
 
 > **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
+
+Generate the Trading 212 key in the app under **Settings → API (Beta)** with only the `account` and `portfolio` scopes (no order scopes). The secret is shown once. The public API works for Invest and Stocks ISA accounts only, and reports values in your account's primary currency. See `docs/trading212-api.md`.
 
 Generate `AUTH_PASSWORD_HASH` in `salt:hash` format with Node:
 
@@ -88,7 +94,7 @@ Browser ──► GET /api/balance ──► Netlify Function ──► Binance 
 
 ## Deployment
 
-Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_SESSION_SECRET` in **Site Settings → Environment Variables**.
+Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_SESSION_SECRET` in **Site Settings → Environment Variables**.
 
 ## License
 

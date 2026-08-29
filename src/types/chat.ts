@@ -1,4 +1,4 @@
-import type { StockHolding, StockQuote } from './portfolio.ts'
+import type { StockAccountSummary, StockHolding, StockPosition, StockQuote } from './portfolio.ts'
 
 export interface ChatMessage {
   id: string
@@ -25,7 +25,8 @@ export interface DashboardContext {
     changePercent: number | null
   }>
   totalCryptoUsdt: number | null
-  stockHoldings: Array<StockHolding & { quote: StockQuote | null }>
+  stockHoldings: Array<StockHolding & { quote: StockQuote | null; position: StockPosition | null }>
+  stockAccount: StockAccountSummary | null
   chart: {
     timeframe: string
     lastCandle: {

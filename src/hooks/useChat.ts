@@ -6,6 +6,7 @@ import { useAlertStore } from '@/store/alertStore'
 import { useCryptoHoldingsStore } from '@/store/cryptoHoldingsStore'
 import { usePortfolioStore } from '@/store/portfolioStore'
 import { useStockQuoteStore } from '@/store/stockQuoteStore'
+import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useNavigationStore } from '@/store/navigationStore'
 import { lastValue } from '@/lib/formatters'
 import type { AlertCondition } from '@/types/alert'
@@ -31,6 +32,7 @@ function buildContext(): DashboardContext {
   const cryptoHoldings = useCryptoHoldingsStore.getState().holdings
   const portfolio = usePortfolioStore.getState().stocks
   const stockQuotes = useStockQuoteStore.getState().quotes
+  const stockPositions = useStockPositionsStore.getState()
   const activeSymbol = useNavigationStore.getState().activeSymbol
 
   const activePrice = priceState.prices[activeSymbol]
@@ -83,7 +85,9 @@ function buildContext(): DashboardContext {
     stockHoldings: portfolio.map((h) => ({
       ...h,
       quote: stockQuotes[h.ticker] ?? null,
+      position: stockPositions.positions[h.ticker] ?? null,
     })),
+    stockAccount: stockPositions.account,
     chart: {
       timeframe: chart.activeInterval,
       lastCandle,

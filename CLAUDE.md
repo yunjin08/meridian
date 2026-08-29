@@ -59,6 +59,8 @@ All functions live in `netlify/functions/`. Files prefixed `_` are shared module
 | `balance.ts` | `GET /api/balance` | HMAC signed | Account BTC + USDT |
 | `ticker.ts` | `GET /api/ticker` | None | 24h price stats (WS fallback) |
 | `health.ts` | `GET /api/health` | None | Health check |
+| `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
+| `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
 | `_binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
 | `_indicators.ts` | — | — | RSI/MACD/BB calculation |
 
@@ -135,11 +137,16 @@ Stored in `.env` locally, in Netlify Site Settings → Environment Variables for
 ```bash
 BINANCE_API_KEY=...
 BINANCE_API_SECRET=...
+TRADING212_API_KEY=...
+TRADING212_API_SECRET=...
+TRADING212_ENV=live   # or demo
 ```
 
 **Critical:** never prefix these with `VITE_`. That would inline them into the browser bundle.
 
 Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions.
+
+Create the Trading 212 API key with only the `account` and `portfolio` scopes. Its rate limits are per account (positions 1 req/s, summary 1 req/5s), shared with any other tool using the same account. Reference: `docs/trading212-api.md`.
 
 ---
 
