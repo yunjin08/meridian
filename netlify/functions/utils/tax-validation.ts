@@ -1,4 +1,4 @@
-import { isValidIsoDate } from '../../../src/lib/tax.ts'
+import { isValidIsoDate } from '../../../src/lib/isoDate.ts'
 import type { TaxFiling, TaxIncomeEntryInput, TaxPeriod } from '../../../src/types/tax.ts'
 
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string }

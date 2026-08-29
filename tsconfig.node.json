@@ -17,14 +17,7 @@
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-
-    /* Paths: mirrors tsconfig.app.json so files under src/ that use the
-       @/ alias (e.g. src/lib/tax.ts) type-check when reached transitively
-       from function code via relative imports. */
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] },
-    "ignoreDeprecations": "6.0"
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["netlify/functions", "vite.config.ts", "vitest.config.ts"]
 }

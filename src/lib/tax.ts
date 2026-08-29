@@ -1,4 +1,5 @@
 import { TAX_ANNUAL_EXEMPTION_PHP, TAX_DEADLINE_WARNING_DAYS, TAX_RATE } from '@/constants'
+import { parseIsoDate, toIsoDate } from '@/lib/isoDate'
 import type {
   TaxFiling,
   TaxIncomeEntry,
@@ -7,31 +8,18 @@ import type {
   TaxPeriodSummary,
 } from '@/types/tax'
 
+// Re-exported so existing consumers (and tests) can keep importing
+// `isValidIsoDate` from `@/lib/tax`. The implementation lives in
+// `@/lib/isoDate`, which stays free of `@/` imports because it is also
+// bundled directly into a Netlify Function.
+export { isValidIsoDate } from '@/lib/isoDate'
+
 export const TAX_PERIODS: readonly TaxPeriod[] = ['Q1', 'Q2', 'Q3', 'ANNUAL']
 
 const MS_PER_DAY = 86_400_000
-const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
-}
-
-// All arithmetic runs on UTC midnight so a browser in UTC+8 and a function
-// in UTC agree on which calendar day a string represents.
-function parseIsoDate(iso: string): Date {
-  const match = ISO_DATE_PATTERN.exec(iso)
-  if (match === null) throw new Error(`Invalid ISO date: ${iso}`)
-  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
-}
-
-function toIsoDate(date: Date): string {
-  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`
-}
-
-export function isValidIsoDate(iso: string): boolean {
-  if (!ISO_DATE_PATTERN.test(iso)) return false
-  const parsed = parseIsoDate(iso)
-  return !Number.isNaN(parsed.getTime()) && toIsoDate(parsed) === iso
 }
 
 /** The user's local calendar date, as YYYY-MM-DD. */
