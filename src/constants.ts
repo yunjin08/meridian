@@ -47,5 +47,5 @@ export const TAX_NOTIFY_THRESHOLDS_DAYS = [30, 14, 7, 1] as const
 // Public landing page (rendered before login)
 export const LANDING_GITHUB_URL = 'https://github.com/yunjin08'
 export const LANDING_REPO_URL = 'https://github.com/yunjin08/meridian'
-// Flip to false once the Overview tab and tax module ship on main
-export const OVERVIEW_TAX_IN_PROGRESS = true
+// The Overview tab and tax module have shipped; the landing page no longer marks them in progress.
+export const OVERVIEW_TAX_IN_PROGRESS = false
