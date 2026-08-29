@@ -173,12 +173,12 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 
 - `utils/supabase-client.ts`: creates one `@supabase/supabase-js` client per invocation from env, throws a clear error when env is missing. Exposes `SupabaseError` for the handlers.
 - `tax-entries.ts`:
-  - `GET /api/tax-entries?year=YYYY` → `{ entries: TaxIncomeEntry[] }` ordered by `received_on desc, created_at desc`. `year` is required and validated as a four-digit integer.
+  - `GET /api/tax-entries[?year=YYYY]` → `{ entries: TaxIncomeEntry[] }` ordered by `received_on desc, created_at desc`. `year` is an optional four-digit filter; the client loads all rows once so the deadline banner can see the previous year's annual return.
   - `POST /api/tax-entries` with `{ receivedOn, source, amountPhp, note? }` → `{ entry }`.
   - `PUT /api/tax-entries?id=<uuid>` with the same body → `{ entry }`.
   - `DELETE /api/tax-entries?id=<uuid>` → 204.
 - `tax-filings.ts`:
-  - `GET /api/tax-filings?year=YYYY` → `{ filings: TaxFiling[] }`.
+  - `GET /api/tax-filings[?year=YYYY]` → `{ filings: TaxFiling[] }`.
   - `PUT /api/tax-filings` with `{ taxYear, period, filedOn, amountPaidPhp }` → upsert, returns `{ filing }`.
   - `DELETE /api/tax-filings?year=YYYY&period=Q1` → 204 (unmark as filed).
 - Every handler: `OPTIONS` preflight, `requireAuth`, method dispatch with `methodNotAllowed`, body validation returning `badRequest` with a specific message, Supabase failures returning `badGateway('supabase_error', { msg })`. Column names are mapped snake_case → camelCase in one `toEntry` / `toFiling` function per file.
@@ -188,13 +188,13 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 
 - `src/lib/taxApi.ts`: typed `fetch` wrappers for the six operations, `credentials: 'include'`, throwing `Error` with the server's `error` message.
 - `src/store/taxStore.ts` (not persisted): `selectedYear`, `entries`, `filings`, `isLoading`, `error`, setters. Default `selectedYear` is the current year.
-- `src/hooks/useTaxData.ts`: loads entries and filings for `selectedYear` on mount and whenever it changes; exposes `addEntry`, `updateEntry`, `removeEntry`, `markFiled`, `unmarkFiled` which call the API then reload. Mounted in `App.tsx` alongside the other hooks so the Overview banner has data on first load.
+- `src/store/taxStore.ts` owns the async actions `load`, `addEntry`, `editEntry`, `removeEntry`, `markFiled`, `unmarkFiled`; each mutation updates the store from the server's returned row (no reload). `src/hooks/useTaxData.ts` calls `load()` once on mount from `App.tsx` so the Overview banner has data on first load.
 
 ## 4. Tax tab and deadline notifications
 
 ### Tax tab (`src/components/tax/`)
 
-- `TaxSection`: year selector (current year ± 3), then `TaxPeriodCards`, then `TaxEntryForm` and `TaxEntryList`. Loading and error lines follow the pattern in `CryptoTradeDetails`.
+- `TaxSection`: year selector (current year and the three before it), then `TaxPeriodCards`, then `TaxEntryForm` and `TaxEntryList`. Loading and error lines follow the pattern in `CryptoTradeDetails`.
 - `TaxPeriodCards`: four cards (Q1, Q2, Q3, Annual). Each shows form, period range, deadline, days remaining, gross, taxable, tax due, and status pill. Unfiled cards have a "Mark as filed" button that reveals date + amount-paid inputs; filed cards show filed date, amount, and an "Unmark" link.
 - `TaxEntryForm`: inline row with date (defaults to today), source, amount (PHP), optional note, Add button. Client-side validation mirrors the server rules. Editing an entry reuses the same form inline in its row.
 - `TaxEntryList`: entries for the year, newest first, grouped by quarter with a subtotal per group. Delete asks for confirmation via a two-step button (click "Delete", then "Confirm"), no modal.
@@ -203,7 +203,7 @@ Never prefixed with `VITE_`. Documented in README and `.env.example`. Set in Net
 ### Deadline notifications (`src/hooks/useTaxDeadlines.ts`)
 
 - Derives `summarisePeriods` for the current tax year and also for the previous year while its ANNUAL period is unfiled (so an overdue annual return keeps showing after Apr 15). Returns `nextActionablePeriod` across both years.
-- On change of the actionable period or of the day, for each threshold in `TAX_NOTIFY_THRESHOLDS_DAYS` where `daysUntil <= threshold`, and once when overdue, calls `sendNotification` unless localStorage has `tax-notified:<year>:<period>:<threshold|overdue>`. Marks it after sending. Browsers only grant permission from a user gesture, so when `Notification.permission === 'default'` the banner and the Tax tab show an "Enable notifications" button that calls `requestNotificationPermission`. Nothing in the app requests permission today (the old `AlertForm` that did was removed), so this button also unblocks the existing price alerts.
+- On change of the actionable period, finds the thresholds in `TAX_NOTIFY_THRESHOLDS_DAYS` where `daysUntil <= threshold` (or the single `overdue` marker). If any is unmarked in localStorage (`tax-notified:<year>:<period>:<threshold|overdue>`), sends one notification for the smallest threshold and marks all of them, so opening the app late yields one notice, not several. Markers are written only while permission is granted. Browsers only grant permission from a user gesture, so when `Notification.permission === 'default'` the banner and the Tax tab show an "Enable notifications" button that calls `requestNotificationPermission`. Nothing in the app requests permission today (the old `AlertForm` that did was removed), so this button also unblocks the existing price alerts.
 - Marking a period filed clears its banner immediately (store update, no reload wait).
 
 ## 5. Testing and verification
