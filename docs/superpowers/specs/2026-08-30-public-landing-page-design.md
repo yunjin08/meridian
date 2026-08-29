@@ -59,3 +59,12 @@ Feedback: the first cut read as a Bitcoin chart demo. The product is the whole p
 - Hero copy is about every investment: what went in, current value, profit, tax due. The hero visual is `OverviewPreview`, the Overview tab with every label real and every value hidden behind a hatched placeholder (no sample figures, no owner data).
 - The live BTC price and chart move to a `MarketSection` below the feature grid, framed as the one public feed.
 - Feature grid order: portfolio overview, tax, stocks and REITs, crypto, alerts, assistant. Indicators are covered by the chart panel.
+
+## Revision, 2026-08-30: load animation
+
+Jed asked for a strong load animation built with Theatre.js.
+
+- `src/lib/theatre/heroTimeline.ts` declares one 4.2 s sequence (sheet `Hero`, objects `Text`, `Curve`, `Card`) as keyframe data. `useHeroTimeline` binds it to elements marked `data-anim` and writes inline styles per frame, so React never re-renders during playback.
+- `HeroScene` draws a fixed growth curve in a band under the hero grid, with one node per asset class (Crypto, Stocks, REITs) popping in along the line. The band overlaps the Overview card by 32-40px so the curve finishes at the card's bottom-right corner; the card rises, its allocation bar fills class by class, the rows and the deadline strip follow.
+- `prefers-reduced-motion` jumps the sequence to its end. `@theatre/studio` is a dev dependency loaded only when the dev URL has `?studio`; it is never bundled (AGPL, and ~1 MB).
+- Cost: `@theatre/core` adds about 140 kB minified (40 kB gzipped) to the single JS chunk.

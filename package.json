@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
     "@supabase/supabase-js": "^2.112.4",
+    "@theatre/core": "^0.7.2",
     "lightweight-charts": "^5.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -25,6 +26,7 @@
     "@eslint/js": "^9.39.4",
     "@netlify/functions": "^5.2.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@theatre/studio": "^0.7.2",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

@@ -94,6 +94,13 @@ body {
   animation: landing-flow 1.6s linear infinite;
 }
 
+/* Hero elements driven by the Theatre.js timeline start hidden so the first
+   paint does not flash the finished state before the sequence takes over. */
+.hero-anim {
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
 .landing-grid-bg {
   background-image: radial-gradient(rgba(139, 148, 158, 0.16) 1px, transparent 1px);
   background-size: 28px 28px;
@@ -101,6 +108,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hero-anim {
+    opacity: 1;
+  }
   .landing-rise,
   .landing-reveal {
     opacity: 1;

@@ -23,7 +23,7 @@ const ROWS = ['Invested', 'Current value', 'Unrealized P&L', 'Realized P&L']
 
 export function OverviewPreview() {
   return (
-    <div className="rounded-lg border border-panel-border bg-panel-bg p-5">
+    <div data-anim="card" className="hero-anim rounded-lg border border-panel-border bg-panel-bg p-5">
       <div className="flex items-center justify-between gap-3">
         <span className="font-mono text-sm font-semibold text-text-primary">Overview</span>
         <span className="rounded-md border border-panel-border px-2 py-0.5 font-mono text-[11px] text-text-muted">
@@ -41,8 +41,13 @@ export function OverviewPreview() {
 
       <div className="mt-5">
         <div className="flex h-1.5 overflow-hidden rounded-full">
-          {CLASSES.map((c) => (
-            <span key={c.label} className={`flex-1 ${c.tone}`} />
+          {CLASSES.map((c, i) => (
+            <span
+              key={c.label}
+              data-anim={`alloc-${i}`}
+              className={`flex-1 origin-left ${c.tone}`}
+              style={{ transform: 'scaleX(0)' }}
+            />
           ))}
         </div>
         <div className="mt-2 flex gap-4 font-mono text-[11px] text-text-muted">
@@ -56,15 +61,15 @@ export function OverviewPreview() {
       </div>
 
       <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-panel-border pt-4 font-mono text-xs">
-        {ROWS.map((row) => (
-          <div key={row} className="flex items-center justify-between gap-3">
+        {ROWS.map((row, i) => (
+          <div key={row} data-anim={`row-${i}`} className="hero-anim flex items-center justify-between gap-3">
             <dt className="text-text-muted">{row}</dt>
             <dd><Hidden width="w-16" /></dd>
           </div>
         ))}
       </dl>
 
-      <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-btc-orange/30 bg-btc-orange/[0.06] px-3 py-2 font-mono text-xs">
+      <div data-anim="deadline" className="hero-anim mt-4 flex items-center justify-between gap-3 rounded-md border border-btc-orange/30 bg-btc-orange/[0.06] px-3 py-2 font-mono text-xs">
         <span className="text-text-muted">
           Next BIR deadline, 1701Q
           {OVERVIEW_TAX_IN_PROGRESS && <span className="ml-2 text-btc-orange">in progress</span>}

@@ -20,6 +20,7 @@ A real-time BTC/USDT trading dashboard connected to a personal Binance account. 
 | Styling | Tailwind CSS | 4 (CSS-first, no config file) |
 | Charting | TradingView Lightweight Charts | 5 |
 | State management | Zustand | 5 |
+| Hero load animation | Theatre.js (`@theatre/core`; `@theatre/studio` dev-only via `?studio`) | 0.7 |
 | Backend | Netlify Functions (serverless, esbuild) | — |
 | Indicators | technicalindicators (RSI, MACD, BB) | 3 |
 | Database | Supabase (Postgres, tax records only) | n/a |
