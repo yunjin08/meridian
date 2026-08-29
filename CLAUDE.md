@@ -146,7 +146,7 @@ TRADING212_ENV=live   # or demo
 
 Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions.
 
-Create the Trading 212 API key with only the `account` and `portfolio` scopes. Its rate limits are per account (positions 1 req/s, summary 1 req/5s), shared with any other tool using the same account. Reference: `docs/trading212-api.md`.
+Create the Trading 212 API key with read scopes only (account, portfolio, history, metadata, orders read) and no write scopes. Today only `account` and `portfolio` are exercised; the rest are for upcoming history/metadata work. Its rate limits are per account (positions 1 req/s, summary 1 req/5s), shared with any other tool using the same account. Reference: `docs/trading212-api.md`.
 
 ---
 

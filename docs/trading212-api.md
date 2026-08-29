@@ -29,8 +29,9 @@ Authorization: Basic base64("<API_KEY>:<API_SECRET>")
 ```
 
 Generate keys in the Trading 212 app: Settings -> API (Beta). The secret is
-shown once. Give the key only the scopes needed here: `account`, `portfolio`.
-Do not enable order scopes.
+shown once. Enable the read scopes (`account`, `portfolio`, `history:*`,
+`metadata`, orders read) so future history/metadata endpoints work without a
+new key. Never enable a write scope: the dashboard is read-only.
 
 ## Rate limits
 
