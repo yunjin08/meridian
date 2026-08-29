@@ -1,6 +1,5 @@
 import { LANDING_REPO_URL } from '@/constants'
-import { LivePrice } from './LivePrice'
-import { ChartFrame } from './ChartFrame'
+import { OverviewPreview } from './OverviewPreview'
 import { stagger } from './stagger'
 
 export function HeroSection() {
@@ -12,21 +11,21 @@ export function HeroSection() {
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto max-w-[1120px] px-4 pb-16 pt-14 sm:px-6 md:pb-24 md:pt-20">
-        <div className="grid grid-cols-1 items-end gap-10 lg:grid-cols-12 lg:gap-8">
+      <div className="relative mx-auto max-w-[1120px] px-4 pb-16 pt-14 sm:px-6 md:pb-20 md:pt-20">
+        <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-8">
           <div className="lg:col-span-7">
             <h1
               className="landing-rise text-4xl font-semibold leading-[1.02] tracking-tighter text-text-primary md:text-5xl lg:text-6xl"
               style={stagger(0)}
             >
-              A personal trading desk, built from the APIs up.
+              One place for every investment.
             </h1>
             <p
               className="landing-rise mt-6 max-w-[58ch] text-base leading-relaxed text-text-muted md:text-lg"
               style={stagger(1)}
             >
-              Live Binance streams, Trading 212 positions, server-side indicators, and a Claude
-              assistant that manages alerts. One owner, read-only keys.
+              Crypto, stocks and REITs together: what went in, what it is worth now, what it has
+              earned, and what tax is due.
             </p>
             <div className="landing-rise mt-8 flex flex-wrap gap-3" style={stagger(2)}>
               <a
@@ -47,12 +46,8 @@ export function HeroSection() {
           </div>
 
           <div className="landing-rise lg:col-span-5" style={stagger(3)}>
-            <LivePrice />
+            <OverviewPreview />
           </div>
-        </div>
-
-        <div className="landing-rise mt-12 md:mt-16" style={stagger(4)}>
-          <ChartFrame />
         </div>
       </div>
     </section>

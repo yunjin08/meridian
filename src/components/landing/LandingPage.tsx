@@ -3,6 +3,7 @@ import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket'
 import { useCandles } from '@/hooks/useCandles'
 import { LandingNav } from './LandingNav'
 import { HeroSection } from './HeroSection'
+import { MarketSection } from './MarketSection'
 import { FeatureGrid } from './FeatureGrid'
 import { ArchitectureSection } from './ArchitectureSection'
 import { StackStrip } from './StackStrip'
@@ -24,6 +25,7 @@ export function LandingPage({ onAuthenticated }: { onAuthenticated: () => void }
       <main className="flex-1">
         <HeroSection />
         <FeatureGrid />
+        <MarketSection />
         <ArchitectureSection />
         <StackStrip />
       </main>

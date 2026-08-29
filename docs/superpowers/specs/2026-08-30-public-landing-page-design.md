@@ -51,3 +51,11 @@ Replace the bare login card shown to unauthenticated visitors with a portfolio-g
 - `netlify/functions/utils/auth.test.ts`: BTCUSDT unauthenticated allowed, other symbols 401, authenticated allowed for any symbol, missing symbol defaults to BTCUSDT.
 - `npm run typecheck`, `npm run lint`, `npm run build`, `npm test`.
 - Manual: landing at 1440 / 768 / 390 widths, `/api/balance` still 401 unauthenticated, login round trip.
+
+## Revision, 2026-08-30 (same day)
+
+Feedback: the first cut read as a Bitcoin chart demo. The product is the whole portfolio, so:
+
+- Hero copy is about every investment: what went in, current value, profit, tax due. The hero visual is `OverviewPreview`, the Overview tab with every label real and every value hidden behind a hatched placeholder (no sample figures, no owner data).
+- The live BTC price and chart move to a `MarketSection` below the feature grid, framed as the one public feed.
+- Feature grid order: portfolio overview, tax, stocks and REITs, crypto, alerts, assistant. Indicators are covered by the chart panel.
