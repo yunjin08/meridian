@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  actionableDeadline,
   addDays,
   daysBetween,
   daysUntil,
@@ -154,5 +155,42 @@ describe('nextActionablePeriod', () => {
 
     // Due soon only
     expect(nextActionablePeriod(summarisePeriods([], allFiled, 2026, '2026-10-20'))?.period).toBe('Q3')
+  })
+})
+
+describe('actionableDeadline', () => {
+  // Q1 2026 deadline is 2026-05-15, 2025 ANNUAL deadline is 2026-04-15.
+
+  it('returns null for an empty database even when dates would be overdue', () => {
+    expect(actionableDeadline([], [], '2026-08-20')).toBeNull()
+  })
+
+  it('returns the previous year unfiled ANNUAL ahead of a current-year period, when the previous year has a receipt', () => {
+    const entries = [entry('2025-06-01', 300_000), entry('2026-01-10', 50_000)]
+    const result = actionableDeadline(entries, [], '2026-08-20')
+    expect(result?.taxYear).toBe(2025)
+    expect(result?.period).toBe('ANNUAL')
+  })
+
+  it('does not return the previous year ANNUAL once it is filed', () => {
+    const entries = [entry('2025-06-01', 300_000), entry('2026-01-10', 50_000)]
+    const filings: TaxFiling[] = [{ taxYear: 2025, period: 'ANNUAL', filedOn: '2026-04-01', amountPaidPhp: 4_000 }]
+    const result = actionableDeadline(entries, filings, '2026-08-20')
+    expect(result?.taxYear).toBe(2026)
+    expect(result?.period).toBe('Q1')
+  })
+
+  it('returns the current year quarter due within 30 days when the current year has activity', () => {
+    const entries = [entry('2026-02-01', 50_000)]
+    const result = actionableDeadline(entries, [], '2026-04-20')
+    expect(result?.taxYear).toBe(2026)
+    expect(result?.period).toBe('Q1')
+  })
+
+  it('treats a filing with no receipts as activity, still surfacing the unfiled ANNUAL', () => {
+    const filings: TaxFiling[] = [{ taxYear: 2025, period: 'Q1', filedOn: '2025-05-01', amountPaidPhp: 0 }]
+    const result = actionableDeadline([], filings, '2026-04-16')
+    expect(result?.taxYear).toBe(2025)
+    expect(result?.period).toBe('ANNUAL')
   })
 })

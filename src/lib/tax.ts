@@ -139,3 +139,46 @@ export function nextActionablePeriod(summaries: readonly TaxPeriodSummary[]): Ta
   if (overdue !== undefined) return overdue
   return summaries.find((s) => s.status === 'due_soon') ?? null
 }
+
+function hasActivityInYear(
+  entries: readonly TaxIncomeEntry[],
+  filings: readonly TaxFiling[],
+  year: number,
+): boolean {
+  const yearPrefix = `${year}-`
+  return (
+    entries.some((e) => e.receivedOn.startsWith(yearPrefix)) ||
+    filings.some((f) => f.taxYear === year)
+  )
+}
+
+/**
+ * The period that needs attention now, restricted to years with at least one
+ * receipt or filing. An empty database has no obligations yet, so it should
+ * not raise last year's annual return (or any period) as overdue just
+ * because the calendar has moved past its deadline.
+ */
+export function actionableDeadline(
+  entries: readonly TaxIncomeEntry[],
+  filings: readonly TaxFiling[],
+  today: string,
+): TaxPeriodSummary | null {
+  const currentYear = Number(today.slice(0, 4))
+  const previousYear = currentYear - 1
+  const candidates: TaxPeriodSummary[] = []
+
+  if (hasActivityInYear(entries, filings, previousYear)) {
+    const previousAnnual = summarisePeriods(entries, filings, previousYear, today).find(
+      (s) => s.period === 'ANNUAL',
+    )
+    if (previousAnnual !== undefined && previousAnnual.status !== 'filed') {
+      candidates.push(previousAnnual)
+    }
+  }
+
+  if (hasActivityInYear(entries, filings, currentYear)) {
+    candidates.push(...summarisePeriods(entries, filings, currentYear, today))
+  }
+
+  return nextActionablePeriod(candidates)
+}
