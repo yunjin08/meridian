@@ -1,117 +1,104 @@
-# BTC Dashboard
+# Investing Dashboard
 
-BTC Dashboard is a personal real-time Bitcoin trading dashboard connected to a Binance account. It displays live BTC/USDT price, account balance, candlestick charts with selectable timeframes, RSI/MACD/Bollinger Bands indicators, and a browser-notification alert system for custom price conditions. It also includes an Overview tab that summarises crypto, stocks, and REIT holdings, and a Tax tab for tracking PH 8% flat-rate income tax with BIR deadline reminders.
+A personal, single-owner dashboard for every investment in one place: crypto on Binance, stocks and REITs on Trading 212, what went in, what it is worth now, what it has earned, and what Philippine income tax is due. Live data, read-only API keys, no order placement.
 
-## Installation
+Visitors see a public landing page with live BTC market data and nothing from the owner's account. Everything else is behind one passphrase.
 
-Requires [Node.js](https://nodejs.org/) and a [Netlify](https://www.netlify.com/) account for deployment.
+## What it does
+
+- **Overview**: total portfolio value across crypto, stocks and REITs, 24h change, allocation by class, top holdings, and a banner when a tax deadline is near.
+- **Crypto**: Binance holdings priced live over the public WebSocket, candlestick chart with 1m to 1d timeframes, RSI / MACD / Bollinger Bands computed server-side, and per-asset trade history (spent, received, net result).
+- **Stocks and REITs**: Trading 212 positions, cost basis, cash and realized P&L through a read-only key; Finnhub quotes for the watchlist; the same chart and indicators per ticker.
+- **Tax**: log gross receipts in PHP; the app applies the 8% flat-rate option with the ₱250,000 annual exemption, computes 1701Q and 1701A amounts, tracks BIR deadlines, and notifies at 30 / 14 / 7 / 1 days.
+- **Alerts**: price, RSI and MACD conditions on any asset, evaluated on every tick, delivered as browser notifications, stored in localStorage.
+- **Assistant**: Claude receives the live dashboard as context, answers in a sentence, and manages alerts and the watchlist through tools.
+
+## Setup
+
+Requires Node.js and a Netlify account.
 
 ```bash
-# Clone the repo and install dependencies
 npm install
-
-# Install Netlify Functions dependencies
-cd netlify/functions
-npm install
-cd ../..
+cd netlify/functions && npm install && cd ../..
 ```
 
-## Configuration
-
-Create a `.env` file in the repo root with your Binance API credentials and auth settings:
+Create `.env` in the repo root. Nothing here may be prefixed `VITE_`; that would inline it into the browser bundle.
 
 ```bash
-BINANCE_API_KEY=your_api_key_here
-BINANCE_API_SECRET=your_api_secret_here
-AUTH_PASSWORD_HASH=your_scrypt_hash_here
-AUTH_SESSION_SECRET=your_random_session_secret_here
+# Owner login
+AUTH_PASSWORD_HASH=salt:hash          # see below
+AUTH_SESSION_SECRET=random_hex        # see below
 
-# Trading 212 (stocks/REITs positions). Optional: TRADING212_ENV=demo for paper trading.
-TRADING212_API_KEY=your_trading212_key
-TRADING212_API_SECRET=your_trading212_secret
+# Binance: create the key with Read Info only
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
 
-# Supabase (tax records)
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Trading 212: Settings → API (Beta), read scopes only. TRADING212_ENV=demo for paper trading.
+TRADING212_API_KEY=
+TRADING212_API_SECRET=
+
+# Finnhub: stock and REIT quotes
+FINNHUB_API_KEY=
+
+# Anthropic: the assistant
+ANTHROPIC_API_KEY=
+
+# Supabase: tax records (service role key, used only inside functions)
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-> **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
-
-Generate the Trading 212 key in the app under **Settings → API (Beta)**. Enable the **read** scopes (account, portfolio, history, metadata, orders read) and leave every **write** scope off; the dashboard never places orders or edits pies, and a read-only key cannot move money. The secret is shown once. The public API works for Invest and Stocks ISA accounts only, and reports values in your account's primary currency. See `docs/trading212-api.md`.
-
-Generate `AUTH_PASSWORD_HASH` in `salt:hash` format with Node:
+Generate the login values:
 
 ```bash
-node -e "const crypto=require('node:crypto');const salt=crypto.randomBytes(16).toString('hex');const hash=crypto.scryptSync(process.argv[1],salt,64).toString('hex');console.log(`${salt}:${hash}`)" "your-strong-passphrase"
-```
+# AUTH_PASSWORD_HASH
+node -e "const c=require('node:crypto');const s=c.randomBytes(16).toString('hex');console.log(s+':'+c.scryptSync(process.argv[1],s,64).toString('hex'))" "your-strong-passphrase"
 
-Generate `AUTH_SESSION_SECRET`:
-
-```bash
+# AUTH_SESSION_SECRET
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-### Supabase (tax records)
+For the Tax tab, create a Supabase project and run `supabase/migrations/0001_tax.sql` in the SQL editor. The tables have row level security on with no policies, so only the service role key can reach them.
 
-The Tax tab persists income entries and filed periods in Supabase. Set it up once:
+Optional: `VITE_STOCK_PORTFOLIO=AAPL:stock,O:reit` seeds the watchlist. It is public in the bundle, so list only tickers you are fine showing.
 
-1. Create a project at [supabase.com](https://supabase.com).
-2. Open the SQL editor and run `supabase/migrations/0001_tax.sql`. This creates `tax_income_entries` and `tax_filings` with row level security enabled and no policies, so only the service role key (used server-side by `netlify/functions/tax-*.ts`) can read or write them.
-3. Copy the project URL and the service role key (Project Settings → API) into `.env` locally, and into Netlify Site Settings → Environment Variables for production.
-
-## Usage
+## Run
 
 ```bash
-# Start local development server (Vite + Netlify Functions on :8888)
-npm run dev
-
-# Type-check only
+npm run dev        # Vite + Netlify Functions on http://localhost:8888
 npm run typecheck
-
-# Run the test suite (Vitest)
-npm test
-
-# Production build
+npm test           # Vitest
 npm run build
 ```
 
-Test API endpoints while `npm run dev` is running:
+Local dev with `?studio` in the URL opens Theatre.js Studio over the landing page to edit the load animation.
 
-```bash
-curl "http://localhost:8888/api/candles?interval=1h&limit=100"
-curl "http://localhost:8888/api/ticker"
-curl "http://localhost:8888/api/balance"
-curl "http://localhost:8888/api/health"
+## How it works
+
+```
+Binance public WebSocket ─────────────────────────► browser (prices, live candles)
+
+browser ──► /api/*  ──► Netlify Functions ──► Binance (HMAC signed) · Trading 212 · Finnhub
+                                           ──► Anthropic (assistant) · Supabase (tax)
 ```
 
-## Tech Stack
+Public market data streams straight into the browser. Every call that touches an account goes through a function that checks the session cookie and holds the keys. `/api/candles` and `/api/ticker` answer anonymously for `BTCUSDT` only, which is what the landing page shows.
 
 | Layer | Technology |
-|-------|-----------|
-| Frontend | React 19, TypeScript, Vite |
-| Styling | Tailwind CSS v4 |
-| Charting | TradingView Lightweight Charts v5 |
-| State | Zustand v5 |
-| Backend | Netlify Functions (serverless) |
-| Indicators | technicalindicators (RSI, MACD, BB) |
-| Database | Supabase (Postgres, tax records only) |
+|---|---|
+| Frontend | React 19, TypeScript (strict), Vite, Tailwind CSS v4, Zustand |
+| Charts | TradingView Lightweight Charts v5 |
+| Indicators | technicalindicators (RSI, MACD, Bollinger Bands) |
+| Backend | Netlify Functions |
+| Database | Supabase (tax records only) |
+| Landing animation | Theatre.js |
 | Tests | Vitest |
-| Deployment | Netlify |
 
-## Architecture
+More detail: `CLAUDE.md`, `docs/`.
 
-Public Binance WebSocket streams connect directly from the browser (CORS-exempt). All authenticated REST calls go through Netlify Functions to keep API keys server-side only.
+## Deploy
 
-```
-Binance Public WS ──► browser (live price + kline updates)
-
-Browser ──► GET /api/candles ──► Netlify Function ──► Binance REST (klines + indicators)
-Browser ──► GET /api/balance ──► Netlify Function ──► Binance REST (HMAC signed)
-```
-
-## Deployment
-
-Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `AUTH_PASSWORD_HASH`, `AUTH_SESSION_SECRET`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in **Site Settings → Environment Variables**.
+Deploy to Netlify and set the same variables as `.env` in **Site configuration → Environment variables**.
 
 ## License
 
