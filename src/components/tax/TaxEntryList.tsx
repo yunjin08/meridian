@@ -56,7 +56,7 @@ function EntryRow({ entry }: { entry: TaxIncomeEntry }) {
             >
               Confirm
             </button>
-            <button type="button" onClick={() => setConfirmDelete(false)} className="px-1.5 py-0.5 rounded border border-panel-border text-text-muted">Keep</button>
+            <button type="button" onClick={() => { setConfirmDelete(false); setDeleteError(null) }} className="px-1.5 py-0.5 rounded border border-panel-border text-text-muted">Keep</button>
           </>
         ) : (
           <button type="button" onClick={() => setConfirmDelete(true)} className="px-1.5 py-0.5 rounded text-bear-red/60 hover:text-bear-red" title="Delete">✕</button>

@@ -38,7 +38,7 @@ export function TaxSection() {
         <div>
           <div className="text-[11px] uppercase tracking-widest text-text-muted font-mono">Income tax</div>
           <div className="text-xs text-text-muted mt-0.5">
-            8% flat rate, non-VAT, purely self-employed. ₱{TAX_ANNUAL_EXEMPTION_PHP.toLocaleString('en-PH')} annual exemption, rate {TAX_RATE * 100}%.
+            8% flat rate, non-VAT, purely self-employed. <span className="font-mono">{formatPhp(TAX_ANNUAL_EXEMPTION_PHP)}</span> annual exemption, rate {TAX_RATE * 100}%.
           </div>
         </div>
         <div className="ml-auto flex items-center gap-3">
@@ -64,7 +64,7 @@ export function TaxSection() {
       {isLoading && !hasLoaded && <p className="text-[11px] text-text-muted font-mono px-1 animate-pulse">Loading tax records…</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        {summaries.map((s) => <TaxPeriodCard key={s.period} summary={s} />)}
+        {summaries.map((s) => <TaxPeriodCard key={`${s.taxYear}-${s.period}`} summary={s} />)}
       </div>
 
       <section className="bg-panel-bg border border-panel-border rounded-lg p-4 flex flex-col gap-3">

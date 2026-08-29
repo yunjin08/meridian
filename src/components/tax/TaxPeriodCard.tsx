@@ -114,7 +114,7 @@ export function TaxPeriodCard({ summary }: TaxPeriodCardProps) {
           <button type="submit" disabled={isSaving} className="px-2 py-1 rounded bg-bull-green text-terminal-bg font-mono text-xs font-semibold disabled:opacity-60">
             {isSaving ? 'Saving…' : 'Confirm filed'}
           </button>
-          <button type="button" onClick={() => setIsMarking(false)} className="px-2 py-1 rounded border border-panel-border font-mono text-xs text-text-muted">Cancel</button>
+          <button type="button" onClick={() => { setIsMarking(false); setError(null) }} className="px-2 py-1 rounded border border-panel-border font-mono text-xs text-text-muted">Cancel</button>
         </form>
       ) : (
         <button
