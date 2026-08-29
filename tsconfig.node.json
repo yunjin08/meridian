@@ -19,5 +19,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["netlify/functions", "vite.config.ts"]
+  "include": ["netlify/functions", "vite.config.ts", "vitest.config.ts"]
 }
