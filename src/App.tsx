@@ -9,6 +9,7 @@ import { useBalance } from '@/hooks/useBalance'
 import { useAlertEvaluator } from '@/hooks/useAlertEvaluator'
 import { useStockQuotes } from '@/hooks/useStockQuotes'
 import { useStockPositions } from '@/hooks/useStockPositions'
+import { useTaxData } from '@/hooks/useTaxData'
 
 type SessionResponse = {
   authenticated: boolean
@@ -21,6 +22,7 @@ function AppInner() {
   useAlertEvaluator()
   useStockQuotes()
   useStockPositions()
+  useTaxData()
 
   return (
     <div className="min-h-screen bg-terminal-bg text-text-primary flex flex-col">
