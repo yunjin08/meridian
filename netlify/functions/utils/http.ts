@@ -2,10 +2,12 @@ import type { HandlerResponse } from '@netlify/functions'
 
 export const STATUS = {
   OK: 200,
+  CREATED: 201,
   NO_CONTENT: 204,
   BAD_REQUEST: 400,
   UNAUTHORIZED: 401,
   METHOD_NOT_ALLOWED: 405,
+  NOT_FOUND: 404,
   INTERNAL_ERROR: 500,
   BAD_GATEWAY: 502,
 } as const
@@ -29,6 +31,18 @@ function withHeaders(extraHeaders?: Record<string, string>): Record<string, stri
 
 export function ok(body: unknown, extraHeaders?: Record<string, string>): HandlerResponse {
   return { statusCode: STATUS.OK, headers: withHeaders(extraHeaders), body: JSON.stringify(body) }
+}
+
+export function created(body: unknown): HandlerResponse {
+  return { statusCode: STATUS.CREATED, headers: corsHeaders(), body: JSON.stringify(body) }
+}
+
+export function noContent(): HandlerResponse {
+  return { statusCode: STATUS.NO_CONTENT, headers: corsHeaders(), body: '' }
+}
+
+export function notFound(error = 'not_found'): HandlerResponse {
+  return { statusCode: STATUS.NOT_FOUND, headers: corsHeaders(), body: JSON.stringify({ error }) }
 }
 
 export function badRequest(error: string, extraHeaders?: Record<string, string>): HandlerResponse {
