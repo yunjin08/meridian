@@ -1,10 +1,11 @@
 import { useNavigationStore, type DashboardTab } from '@/store/navigationStore'
 
 const TABS: { id: DashboardTab; label: string }[] = [
-  { id: 'crypto',    label: 'Crypto' },
-  { id: 'stocks',    label: 'Stocks' },
-  { id: 'reits',     label: 'REITs' },
-  { id: 'portfolio', label: 'Portfolio' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'crypto',   label: 'Crypto' },
+  { id: 'stocks',   label: 'Stocks' },
+  { id: 'reits',    label: 'REITs' },
+  { id: 'tax',      label: 'Tax' },
 ]
 
 export function TabBar() {

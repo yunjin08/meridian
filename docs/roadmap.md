@@ -64,6 +64,15 @@ When `connectionStatus === 'failed'` (after 5 WS reconnect attempts), the UI sho
 
 ## Feature additions (Phase 2)
 
+**Done: Overview tab and Tax module.** The Overview landing tab (portfolio hero, per-class cards, allocation bar, top holdings) and the Tax tab (PH 8% flat-rate income tax, period cards, entry form, BIR deadline banner and browser notifications) are built, backed by Supabase for tax records. See `CLAUDE.md` for the architecture.
+
+Explicitly out of scope for this module, left as follow-ups:
+- Taxation of trading gains (the current module only covers the 8% flat-rate income tax on gross receipts, not capital gains from crypto or stock trades).
+- The mixed-income formula (compensation income plus business income taxed under the graduated table).
+- Receipts recorded in currencies other than PHP.
+- Chat-assistant tools for creating or editing tax entries.
+- A BIR public holiday calendar for deadline rollover (weekends are handled; holidays are not).
+
 ### 9. Background alert notifications via Telegram or Pushover
 
 Currently alerts only fire while the tab is open. The fix: when an alert triggers client-side, call a new Netlify Function (`/api/notify`) that posts to a Telegram bot or Pushover API. This delivers the notification even if the tab is later closed.

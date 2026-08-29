@@ -37,8 +37,15 @@ export const ALERT_AUTO_RESET_COOLDOWN_MS = 5 * 60 * 1_000
 // Finnhub API base (used by Netlify functions)
 export const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1'
 
+// PH income tax, 8% flat-rate option for a purely self-employed / professional
+// taxpayer (non-VAT). The exemption is annual and applied cumulatively per 1701Q.
+export const TAX_RATE = 0.08
+export const TAX_ANNUAL_EXEMPTION_PHP = 250_000
+export const TAX_DEADLINE_WARNING_DAYS = 30
+export const TAX_NOTIFY_THRESHOLDS_DAYS = [30, 14, 7, 1] as const
+
 // Public landing page (rendered before login)
 export const LANDING_GITHUB_URL = 'https://github.com/yunjin08'
 export const LANDING_REPO_URL = 'https://github.com/yunjin08/meridian'
-// Flip to false once the Overview tab and tax module ship on main
-export const OVERVIEW_TAX_IN_PROGRESS = true
+// The Overview tab and tax module have shipped; the landing page no longer marks them in progress.
+export const OVERVIEW_TAX_IN_PROGRESS = false

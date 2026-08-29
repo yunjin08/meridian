@@ -61,3 +61,24 @@ export function lastValue(arr: number[]): number | null {
   }
   return null
 }
+
+const phpFormatter = new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+export function formatPhp(value: number): string {
+  return phpFormatter.format(value)
+}
+
+const isoDateFormatter = new Intl.DateTimeFormat('en-US', {
+  dateStyle: 'medium',
+  timeZone: 'UTC',
+})
+
+/** Formats a YYYY-MM-DD string. Parsed as UTC so the day never shifts with the viewer's timezone. */
+export function formatIsoDate(iso: string): string {
+  return isoDateFormatter.format(new Date(`${iso}T00:00:00Z`))
+}

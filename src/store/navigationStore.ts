@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULT_CRYPTO_SYMBOL } from '@/constants'
 
-export type DashboardTab = 'crypto' | 'stocks' | 'reits' | 'portfolio'
+export type DashboardTab = 'overview' | 'crypto' | 'stocks' | 'reits' | 'tax'
 
 interface NavigationState {
   activeTab: DashboardTab
@@ -11,7 +11,7 @@ interface NavigationState {
 }
 
 export const useNavigationStore = create<NavigationState>()((set) => ({
-  activeTab: 'crypto',
+  activeTab: 'overview',
   activeSymbol: DEFAULT_CRYPTO_SYMBOL,
   setActiveTab: (activeTab) => set({ activeTab }),
   setActiveSymbol: (activeSymbol) => set({ activeSymbol }),
