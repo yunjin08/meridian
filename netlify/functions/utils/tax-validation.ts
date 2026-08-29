@@ -6,7 +6,7 @@ export type Validation<T> = { ok: true; value: T } | { ok: false; error: string 
 const PERIODS: readonly TaxPeriod[] = ['Q1', 'Q2', 'Q3', 'ANNUAL']
 const PERIOD_ERROR = 'period must be one of Q1, Q2, Q3, ANNUAL'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const MAX_AMOUNT = 1e12
+const MAX_AMOUNT = 999_999_999_999.99
 const MAX_SOURCE_LENGTH = 120
 const MAX_NOTE_LENGTH = 500
 
@@ -53,7 +53,7 @@ export function parseEntryInput(body: unknown): Validation<TaxIncomeEntryInput> 
   if (source.length > MAX_SOURCE_LENGTH) return invalid(`source must be ${MAX_SOURCE_LENGTH} characters or fewer`)
 
   const amountPhp = body['amountPhp']
-  if (!isAmount(amountPhp)) return invalid(`amountPhp must be a number between 0 and 1e12`)
+  if (!isAmount(amountPhp)) return invalid(`amountPhp must be a number between 0 and ${MAX_AMOUNT}`)
 
   const rawNote = body['note']
   let note: string | null = null
@@ -62,7 +62,7 @@ export function parseEntryInput(body: unknown): Validation<TaxIncomeEntryInput> 
     if (trimmed.length > MAX_NOTE_LENGTH) return invalid(`note must be ${MAX_NOTE_LENGTH} characters or fewer`)
     note = trimmed.length === 0 ? null : trimmed
   } else if (rawNote !== undefined && rawNote !== null) {
-    return invalid(`note must be ${MAX_NOTE_LENGTH} characters or fewer`)
+    return invalid('note must be a string or null')
   }
 
   return { ok: true, value: { receivedOn, source, amountPhp, note } }
@@ -83,7 +83,7 @@ export function parseFilingInput(body: unknown): Validation<TaxFiling> {
   }
 
   const amountPaidPhp = body['amountPaidPhp']
-  if (!isAmount(amountPaidPhp)) return invalid('amountPaidPhp must be a number between 0 and 1e12')
+  if (!isAmount(amountPaidPhp)) return invalid(`amountPaidPhp must be a number between 0 and ${MAX_AMOUNT}`)
 
   return { ok: true, value: { taxYear, period, filedOn, amountPaidPhp } }
 }

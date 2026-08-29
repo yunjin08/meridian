@@ -28,10 +28,13 @@ describe('parseEntryInput', () => {
     [{ ...validEntry, receivedOn: '5 March' }, 'receivedOn must be a valid YYYY-MM-DD date'],
     [{ ...validEntry, source: '' }, 'source is required'],
     [{ ...validEntry, source: 'x'.repeat(121) }, 'source must be 120 characters or fewer'],
-    [{ ...validEntry, amountPhp: -1 }, 'amountPhp must be a number between 0 and 1e12'],
-    [{ ...validEntry, amountPhp: '100' }, 'amountPhp must be a number between 0 and 1e12'],
-    [{ ...validEntry, amountPhp: Number.NaN }, 'amountPhp must be a number between 0 and 1e12'],
+    [{ ...validEntry, amountPhp: -1 }, 'amountPhp must be a number between 0 and 999999999999.99'],
+    [{ ...validEntry, amountPhp: '100' }, 'amountPhp must be a number between 0 and 999999999999.99'],
+    [{ ...validEntry, amountPhp: Number.NaN }, 'amountPhp must be a number between 0 and 999999999999.99'],
+    [{ ...validEntry, amountPhp: 1e12 }, 'amountPhp must be a number between 0 and 999999999999.99'],
     [{ ...validEntry, note: 'n'.repeat(501) }, 'note must be 500 characters or fewer'],
+    [{ ...validEntry, note: 42 }, 'note must be a string or null'],
+    [{ ...validEntry, note: ['x'] }, 'note must be a string or null'],
     [null, 'body must be a JSON object'],
     ['str', 'body must be a JSON object'],
   ])('rejects %j', (body, error) => {
@@ -51,7 +54,7 @@ describe('parseFilingInput', () => {
     [{ ...valid, taxYear: 2026.5 }, 'taxYear must be an integer between 2000 and 2100'],
     [{ ...valid, period: 'Q4' }, 'period must be one of Q1, Q2, Q3, ANNUAL'],
     [{ ...valid, filedOn: '2026-13-01' }, 'filedOn must be a valid YYYY-MM-DD date'],
-    [{ ...valid, amountPaidPhp: -5 }, 'amountPaidPhp must be a number between 0 and 1e12'],
+    [{ ...valid, amountPaidPhp: -5 }, 'amountPaidPhp must be a number between 0 and 999999999999.99'],
   ])('rejects %j', (body, error) => {
     expect(parseFilingInput(body)).toEqual({ ok: false, error })
   })
