@@ -72,3 +72,27 @@ export interface BinanceError {
   code: number
   msg: string
 }
+
+// GET /sapi/v1/fiat/payments (Buy Crypto / Sell Crypto with fiat).
+// For buys sourceAmount is fiat and obtainAmount is crypto; for sells it is the reverse.
+export interface BinanceFiatPayment {
+  orderNo: string
+  sourceAmount: string
+  fiatCurrency: string
+  obtainAmount: string
+  cryptoCurrency: string
+  totalFee: string
+  price: string
+  status: string            // "Completed" | "Failed" | "Processing" | "Refunding" | ...
+  paymentMethod?: string
+  createTime: number
+  updateTime: number
+}
+
+export interface BinanceFiatPaymentsResponse {
+  code: string
+  message: string
+  data?: BinanceFiatPayment[]
+  total: number
+  success: boolean
+}
