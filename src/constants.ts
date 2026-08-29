@@ -36,3 +36,9 @@ export const ALERT_AUTO_RESET_COOLDOWN_MS = 5 * 60 * 1_000
 
 // Finnhub API base (used by Netlify functions)
 export const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1'
+
+// Public landing page (rendered before login)
+export const LANDING_GITHUB_URL = 'https://github.com/yunjin08'
+export const LANDING_REPO_URL = 'https://github.com/yunjin08/meridian'
+// Flip to false once the Overview tab and tax module ship on main
+export const OVERVIEW_TAX_IN_PROGRESS = true
