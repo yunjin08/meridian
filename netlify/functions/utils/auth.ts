@@ -127,3 +127,18 @@ export function isAuthorized(event: HandlerEvent): boolean {
 export function requireAuth(event: HandlerEvent): HandlerResponse | null {
   return isAuthorized(event) ? null : unauthorized('unauthorized')
 }
+
+// The landing page renders before login and shows live BTC market data. That
+// data is public on Binance, carries nothing from the owner's account, and is
+// limited to one symbol so an anonymous visitor cannot fan out requests.
+export const PUBLIC_MARKET_SYMBOL = 'BTCUSDT'
+
+export function isPublicMarketRequest(event: HandlerEvent): boolean {
+  const symbol = (event.queryStringParameters?.['symbol'] ?? PUBLIC_MARKET_SYMBOL).toUpperCase()
+  return symbol === PUBLIC_MARKET_SYMBOL
+}
+
+export function requireAuthUnlessPublicMarketData(event: HandlerEvent): HandlerResponse | null {
+  if (isAuthorized(event)) return null
+  return isPublicMarketRequest(event) ? null : unauthorized('unauthorized')
+}
