@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HandlerEvent } from '@netlify/functions'
-import type { TaxIncomeEntry } from '../../src/types/tax.ts'
+import type { TaxIncomeEntry } from '../../../src/types/tax.ts'
 
-vi.mock('./utils/auth.ts', () => ({
+vi.mock('../utils/auth.ts', () => ({
   requireAuth: vi.fn(() => null),
 }))
 
-vi.mock('./utils/tax-repo.ts', () => {
+vi.mock('../utils/tax-repo.ts', () => {
   class SupabaseRepoError extends Error {}
   return {
     SupabaseRepoError,
@@ -17,9 +17,9 @@ vi.mock('./utils/tax-repo.ts', () => {
   }
 })
 
-import { requireAuth } from './utils/auth.ts'
-import * as repo from './utils/tax-repo.ts'
-import { handler } from './tax-entries.ts'
+import { requireAuth } from '../utils/auth.ts'
+import * as repo from '../utils/tax-repo.ts'
+import { handler } from '../tax-entries.ts'
 
 const entry: TaxIncomeEntry = {
   id: '6f1c2a3e-4b5d-4c6e-8f7a-9b0c1d2e3f4a',

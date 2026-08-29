@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HandlerEvent } from '@netlify/functions'
-import type { TaxFiling } from '../../src/types/tax.ts'
+import type { TaxFiling } from '../../../src/types/tax.ts'
 
-vi.mock('./utils/auth.ts', () => ({
+vi.mock('../utils/auth.ts', () => ({
   requireAuth: vi.fn(() => null),
 }))
 
-vi.mock('./utils/tax-repo.ts', () => {
+vi.mock('../utils/tax-repo.ts', () => {
   class SupabaseRepoError extends Error {}
   return {
     SupabaseRepoError,
@@ -16,9 +16,9 @@ vi.mock('./utils/tax-repo.ts', () => {
   }
 })
 
-import { requireAuth } from './utils/auth.ts'
-import * as repo from './utils/tax-repo.ts'
-import { handler } from './tax-filings.ts'
+import { requireAuth } from '../utils/auth.ts'
+import * as repo from '../utils/tax-repo.ts'
+import { handler } from '../tax-filings.ts'
 
 const filing: TaxFiling = { taxYear: 2026, period: 'Q1', filedOn: '2026-05-10', amountPaidPhp: 4000 }
 
