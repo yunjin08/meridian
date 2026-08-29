@@ -150,28 +150,37 @@ PRICE (${ctx.activeSymbol}):
   const stocks = ctx.stockHoldings.filter((h) => h.assetClass === 'stock')
   const reits = ctx.stockHoldings.filter((h) => h.assetClass === 'reit')
 
+  const acct = ctx.stockAccount
+  const money = (n: number) => `${fmt(n)} ${acct?.currency ?? 'USD'}`
+  if (acct) {
+    prompt += `\n\nTRADING 212 ACCOUNT (${acct.currency}): total ${money(acct.totalValue)}, invested ${money(acct.invested)} (cost ${money(acct.investedCost)}), cash ${money(acct.cashAvailable)}, unrealized P&L ${acct.unrealizedPnl >= 0 ? '+' : ''}${money(acct.unrealizedPnl)}, realized P&L ${acct.realizedPnl >= 0 ? '+' : ''}${money(acct.realizedPnl)}`
+  }
+
+  const describeHolding = (h: (typeof ctx.stockHoldings)[number]): string => {
+    const q = h.quote
+    const p = h.position
+    const parts: string[] = []
+    if (q) parts.push(`${fmtPrice(q.price)} (${fmtPct(q.changePercent)})`)
+    else if (p) parts.push(`${fmt(p.currentPrice)} ${p.currency} (Trading 212 last price)`)
+    else parts.push('no price data')
+    if (p) {
+      parts.push(`${p.quantity} shares @ avg ${fmt(p.avgPrice)} ${p.currency}, value ${money(p.currentValue)}, P&L ${p.unrealizedPnl >= 0 ? '+' : ''}${money(p.unrealizedPnl)}`)
+    } else if (h.shares) {
+      parts.push(`${h.shares} shares (manual)`)
+    } else {
+      parts.push('watchlist only')
+    }
+    return `\n- ${h.ticker}: ${parts.join('; ')}`
+  }
+
   if (stocks.length > 0) {
     prompt += `\n\nSTOCK HOLDINGS:`
-    for (const h of stocks) {
-      const q = h.quote
-      if (q) {
-        prompt += `\n- ${h.ticker}: ${fmtPrice(q.price)} (${fmtPct(q.changePercent)})`
-      } else {
-        prompt += `\n- ${h.ticker}: no price data`
-      }
-    }
+    for (const h of stocks) prompt += describeHolding(h)
   }
 
   if (reits.length > 0) {
     prompt += `\n\nREIT HOLDINGS:`
-    for (const h of reits) {
-      const q = h.quote
-      if (q) {
-        prompt += `\n- ${h.ticker}: ${fmtPrice(q.price)} (${fmtPct(q.changePercent)})`
-      } else {
-        prompt += `\n- ${h.ticker}: no price data`
-      }
-    }
+    for (const h of reits) prompt += describeHolding(h)
   }
 
   // Chart

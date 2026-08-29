@@ -1,4 +1,5 @@
 import { StockList } from './StockList'
+import { StockAccountCard } from './StockAccountCard'
 import { AlertList } from '@/components/alerts/AlertList'
 import { TimeframeSelector } from '@/components/chart/TimeframeSelector'
 import { ChartContainer } from '@/components/chart/ChartContainer'
@@ -49,6 +50,9 @@ export function StocksSection({ tab, filter }: StocksSectionProps) {
     <div className="flex flex-col lg:flex-row gap-3 p-3 h-full">
       {/* Left panel */}
       <div className="lg:w-56 xl:w-64 flex-shrink-0 flex flex-col gap-3">
+        <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
+          <StockAccountCard />
+        </div>
         <div className="bg-panel-bg border border-panel-border rounded-lg p-3">
           <StockList filter={filter} />
         </div>

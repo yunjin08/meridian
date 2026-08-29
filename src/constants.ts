@@ -20,6 +20,8 @@ export const STALE_THRESHOLD_MS = 5_000
 export const BALANCE_POLL_INTERVAL_MS = 30_000
 export const CANDLE_REFRESH_INTERVAL_MS = 60_000
 export const STOCK_QUOTE_POLL_INTERVAL_MS = 30_000
+// Trading 212 limits: positions 1 req/s, account summary 1 req/5s (per account)
+export const STOCK_POSITIONS_POLL_INTERVAL_MS = 30_000
 
 // WebSocket reconnection
 export const WS_MAX_RECONNECT_ATTEMPTS = 5

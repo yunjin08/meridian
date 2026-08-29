@@ -34,7 +34,7 @@ export function StockList({ filter }: StockListProps) {
 
       {filtered.length === 0 ? (
         <div className="text-text-muted/50 text-xs text-center py-4">
-          No {LABEL[filter].toLowerCase()} — ask the assistant to add one.
+          No {LABEL[filter].toLowerCase()} held. Ask the assistant to add a watchlist ticker.
         </div>
       ) : (
         <div className="space-y-1">

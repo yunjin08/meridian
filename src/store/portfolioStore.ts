@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { StockHolding } from '@/types/portfolio'
+import type { StockHolding, StockPosition } from '@/types/portfolio'
 
 // Seed from env var on first load.
 // Format: VITE_STOCK_PORTFOLIO=AAPL:stock,MSFT:stock,O:reit,VICI:reit
@@ -27,6 +27,7 @@ interface PortfolioState {
   addStock: (holding: StockHolding) => void
   removeStock: (ticker: string) => void
   setStocks: (holdings: StockHolding[]) => void
+  syncFromPositions: (positions: StockPosition[]) => void
 }
 
 export const usePortfolioStore = create<PortfolioState>()(
@@ -45,6 +46,28 @@ export const usePortfolioStore = create<PortfolioState>()(
         set((s) => ({ stocks: s.stocks.filter((h) => h.ticker !== ticker) })),
 
       setStocks: (stocks) => set({ stocks }),
+
+      // Trading 212 is the source of truth for what is held. Manually added
+      // tickers stay as a watchlist; the user's stock/REIT classification is
+      // kept because the API has no notion of a REIT.
+      syncFromPositions: (positions) =>
+        set((s) => {
+          const held = new Map(positions.map((p) => [p.ticker, p]))
+          const kept: StockHolding[] = []
+          for (const h of s.stocks) {
+            const p = held.get(h.ticker)
+            if (p !== undefined) {
+              kept.push({ ...h, shares: p.quantity, source: 'trading212' })
+              held.delete(h.ticker)
+            } else if (h.source !== 'trading212') {
+              kept.push(h)
+            }
+          }
+          for (const p of held.values()) {
+            kept.push({ ticker: p.ticker, assetClass: 'stock', shares: p.quantity, source: 'trading212' })
+          }
+          return { stocks: kept }
+        }),
     }),
     {
       name: 'dashboard-portfolio',

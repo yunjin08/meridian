@@ -16,6 +16,22 @@ export function formatPrice(price: number): string {
   return priceFormatter.format(price)
 }
 
+const moneyFormatters = new Map<string, Intl.NumberFormat>()
+
+/** Format a value in an arbitrary ISO 4217 currency (Trading 212 account currency may not be USD). */
+export function formatMoney(value: number, currency: string): string {
+  let fmt = moneyFormatters.get(currency)
+  if (fmt === undefined) {
+    try {
+      fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    } catch {
+      fmt = priceFormatter
+    }
+    moneyFormatters.set(currency, fmt)
+  }
+  return fmt.format(value)
+}
+
 export function formatPriceCompact(price: number): string {
   return compactPriceFormatter.format(price)
 }
