@@ -24,6 +24,7 @@ export function useCandles() {
   const setIndicators = useChartStore((s) => s.setIndicators)
   const setLoading = useChartStore((s) => s.setLoading)
   const setFetchedAt = useChartStore((s) => s.setFetchedAt)
+  const setError = useChartStore((s) => s.setError)
   const activeSymbol = useNavigationStore((s) => s.activeSymbol)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -36,9 +37,11 @@ export function useCandles() {
         setCandles(data.candles)
         setIndicators(data.indicators)
         setFetchedAt(data.fetchedAt)
+        setError(null)
       })
       .catch((err: unknown) => {
         console.error('[useCandles] fetch failed:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load candles')
       })
       .finally(() => {
         setLoading(false)
