@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { EnableNotificationsButton } from '@/components/tax/EnableNotificationsButton'
 import { TaxEntryForm } from '@/components/tax/TaxEntryForm'
 import { TaxEntryList } from '@/components/tax/TaxEntryList'
 import { TaxPeriodCard } from '@/components/tax/TaxPeriodCard'
@@ -42,7 +43,7 @@ export function TaxSection() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          {/* Task 11 mounts <EnableNotificationsButton /> here */}
+          <EnableNotificationsButton />
           <label className="font-mono text-xs text-text-muted flex items-center gap-2">
             Year
             <select

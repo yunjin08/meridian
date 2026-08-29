@@ -2,6 +2,7 @@ import { AllocationBar } from '@/components/overview/AllocationBar'
 import { AssetClassCard } from '@/components/overview/AssetClassCard'
 import { PortfolioHero } from '@/components/overview/PortfolioHero'
 import { TopHoldingsList } from '@/components/overview/TopHoldingsList'
+import { TaxDeadlineBanner } from '@/components/tax/TaxDeadlineBanner'
 import { usePortfolioSummary } from '@/hooks/usePortfolioSummary'
 import { formatMoney } from '@/lib/formatters'
 import { useBalanceStore } from '@/store/balanceStore'
@@ -30,7 +31,7 @@ export function OverviewSection() {
 
   return (
     <div className="p-3 md:p-4 flex flex-col gap-3 max-w-6xl w-full mx-auto">
-      {/* Task 11 mounts <TaxDeadlineBanner /> here */}
+      <TaxDeadlineBanner />
       <PortfolioHero summary={summary} isLoading={isLoading} error={error} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
