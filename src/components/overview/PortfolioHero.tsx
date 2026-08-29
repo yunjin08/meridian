@@ -1,14 +1,16 @@
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
 import { formatMoney, formatPercent, formatTimestamp } from '@/lib/formatters'
+import type { PnlSummary } from '@/lib/pnlSummary'
 import type { PortfolioSummary } from '@/lib/portfolioSummary'
 
 interface PortfolioHeroProps {
   summary: PortfolioSummary
+  pnl: PnlSummary
   isLoading: boolean
   error: string | null
 }
 
-export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps) {
+export function PortfolioHero({ summary, pnl, isLoading, error }: PortfolioHeroProps) {
   const showSkeleton = isLoading && summary.asOf === null
   const isPositive = summary.change24hUsd >= 0
   const changeColor = isPositive ? 'text-bull-green' : 'text-bear-red'
@@ -37,6 +39,11 @@ export function PortfolioHero({ summary, isLoading, error }: PortfolioHeroProps)
               <span className={`${changeColor} text-xs`}>{formatPercent(summary.change24hPercent)}</span>
             )}
             <span className="text-text-muted text-xs">24h</span>
+            {pnl.total !== null && (
+              <span className={`text-xs ${pnl.total >= 0 ? 'text-bull-green' : 'text-bear-red'}`}>
+                · {pnl.total >= 0 ? '+' : ''}{formatMoney(pnl.total, pnl.totalCurrency)} all-time net
+              </span>
+            )}
             {summary.asOf !== null && (
               <span className="ml-auto text-text-muted text-[11px]">as of {formatTimestamp(summary.asOf)}</span>
             )}

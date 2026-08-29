@@ -9,6 +9,7 @@ import { useBalance } from '@/hooks/useBalance'
 import { useAlertEvaluator } from '@/hooks/useAlertEvaluator'
 import { useStockQuotes } from '@/hooks/useStockQuotes'
 import { useStockPositions } from '@/hooks/useStockPositions'
+import { useCryptoPnl } from '@/hooks/useCryptoPnl'
 import { useTaxData } from '@/hooks/useTaxData'
 import { useTaxDeadlineNotifier } from '@/hooks/useTaxDeadlines'
 
@@ -23,6 +24,7 @@ function AppInner() {
   useAlertEvaluator()
   useStockQuotes()
   useStockPositions()
+  useCryptoPnl()
   useTaxData()
   useTaxDeadlineNotifier()
 

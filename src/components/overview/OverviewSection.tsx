@@ -1,16 +1,20 @@
 import { AllocationBar } from '@/components/overview/AllocationBar'
 import { AssetClassCard } from '@/components/overview/AssetClassCard'
+import { PnlSection } from '@/components/overview/PnlSection'
 import { PortfolioHero } from '@/components/overview/PortfolioHero'
 import { TopHoldingsList } from '@/components/overview/TopHoldingsList'
 import { TaxDeadlineBanner } from '@/components/tax/TaxDeadlineBanner'
+import { usePnlSummary } from '@/hooks/usePnlSummary'
 import { usePortfolioSummary } from '@/hooks/usePortfolioSummary'
 import { formatMoney } from '@/lib/formatters'
 import { useBalanceStore } from '@/store/balanceStore'
+import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useStockQuoteStore } from '@/store/stockQuoteStore'
 
 export function OverviewSection() {
   const summary = usePortfolioSummary()
+  const pnl = usePnlSummary()
   const balanceLoading = useBalanceStore((s) => s.isLoading)
   const balanceError = useBalanceStore((s) => s.error)
   const quotesLoading = useStockQuoteStore((s) => s.isLoading)
@@ -18,6 +22,8 @@ export function OverviewSection() {
   const positionsLoading = useStockPositionsStore((s) => s.isLoading)
   const positionsError = useStockPositionsStore((s) => s.error)
   const account = useStockPositionsStore((s) => s.account)
+  const pnlLoading = useCryptoPnlStore((s) => s.isLoading)
+  const pnlError = useCryptoPnlStore((s) => s.error)
 
   const equitiesLoading = quotesLoading || positionsLoading
   const isLoading = balanceLoading || equitiesLoading
@@ -32,13 +38,15 @@ export function OverviewSection() {
   return (
     <div className="p-3 md:p-4 flex flex-col gap-3 max-w-6xl w-full mx-auto">
       <TaxDeadlineBanner />
-      <PortfolioHero summary={summary} isLoading={isLoading} error={error} />
+      <PortfolioHero summary={summary} pnl={pnl} isLoading={isLoading} error={error} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <AssetClassCard label="Crypto" tab="crypto" summary={summary.classes.crypto} total={summary.total} accentClass="bg-btc-orange" isLoading={balanceLoading} />
         <AssetClassCard label="Stocks" tab="stocks" summary={summary.classes.stock}  total={summary.total} accentClass="bg-bull-green" isLoading={equitiesLoading} {...(tradingDetail === undefined ? {} : { detail: tradingDetail })} />
         <AssetClassCard label="REITs"  tab="reits"  summary={summary.classes.reit}   total={summary.total} accentClass="bg-blue-400"  isLoading={equitiesLoading} />
       </div>
+
+      <PnlSection pnl={pnl} isLoading={pnlLoading || positionsLoading} error={pnlError} />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
         <div className="lg:col-span-2"><AllocationBar summary={summary} /></div>
