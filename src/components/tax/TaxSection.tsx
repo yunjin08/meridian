@@ -20,17 +20,21 @@ export function TaxSection() {
   const error = useTaxStore((s) => s.error)
   const addEntry = useTaxStore((s) => s.addEntry)
 
-  const currentYear = new Date().getFullYear()
+  const currentYear = Number(todayIso().slice(0, 4))
   const years = Array.from({ length: YEARS_BACK + 1 }, (_, i) => currentYear - i)
 
   const yearEntries = useMemo(
     () => entries.filter((e) => e.receivedOn.startsWith(`${selectedYear}-`)),
     [entries, selectedYear],
   )
+  // todayIso() is read fresh on every render (not a dependency): it only
+  // changes at the day boundary, and refetching entries/filings already
+  // triggers a re-render around then.
   const summaries = useMemo(
     () => summarisePeriods(entries, filings, selectedYear, todayIso()),
     [entries, filings, selectedYear],
   )
+  const annualSummary = summaries.find((s) => s.period === 'ANNUAL')
   const yearGross = yearEntries.reduce((sum, e) => sum + e.amountPhp, 0)
 
   return (
@@ -57,7 +61,7 @@ export function TaxSection() {
         </div>
         <div className="w-full flex gap-6 font-mono text-xs pt-2 border-t border-panel-border">
           <span className="text-text-muted">Gross {selectedYear}: <span className="text-text-primary">{formatPhp(yearGross)}</span></span>
-          <span className="text-text-muted">Tax for year: <span className="text-text-primary">{formatPhp(summaries[3]?.cumulativeTaxPhp ?? 0)}</span></span>
+          <span className="text-text-muted">Tax for year: <span className="text-text-primary">{formatPhp(annualSummary?.cumulativeTaxPhp ?? 0)}</span></span>
         </div>
       </section>
 

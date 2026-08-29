@@ -36,7 +36,7 @@ export function TaxDeadlineBanner() {
         <button
           type="button"
           onClick={() => setActiveTab('tax')}
-          className="px-2.5 py-1 rounded border border-current font-mono text-xs hover:bg-white/5"
+          className="px-2.5 py-1 rounded border border-current font-mono text-xs hover:bg-panel-border/40"
         >
           Open Tax
         </button>

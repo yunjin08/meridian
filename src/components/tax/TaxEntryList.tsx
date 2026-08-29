@@ -42,7 +42,7 @@ function EntryRow({ entry }: { entry: TaxIncomeEntry }) {
       {entry.note !== null && <span className="text-text-muted/70 truncate hidden md:inline">{entry.note}</span>}
       <span className="ml-auto text-text-primary tabular-nums">{formatPhp(entry.amountPhp)}</span>
       <div className="flex items-center gap-1 shrink-0">
-        <button type="button" onClick={() => setIsEditing(true)} className="px-1.5 py-0.5 rounded border border-panel-border text-text-muted hover:text-text-primary" title="Edit">✎</button>
+        <button type="button" onClick={() => setIsEditing(true)} className="px-1.5 py-0.5 rounded border border-panel-border text-text-muted hover:text-text-primary" title="Edit" aria-label="Edit receipt">✎</button>
         {confirmDelete ? (
           <>
             <button
@@ -59,7 +59,7 @@ function EntryRow({ entry }: { entry: TaxIncomeEntry }) {
             <button type="button" onClick={() => { setConfirmDelete(false); setDeleteError(null) }} className="px-1.5 py-0.5 rounded border border-panel-border text-text-muted">Keep</button>
           </>
         ) : (
-          <button type="button" onClick={() => setConfirmDelete(true)} className="px-1.5 py-0.5 rounded text-bear-red/60 hover:text-bear-red" title="Delete">✕</button>
+          <button type="button" onClick={() => setConfirmDelete(true)} className="px-1.5 py-0.5 rounded text-bear-red/60 hover:text-bear-red" title="Delete" aria-label="Delete receipt">✕</button>
         )}
       </div>
       {deleteError !== null && <span className="text-bear-red text-[10px]">{deleteError}</span>}

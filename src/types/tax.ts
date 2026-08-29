@@ -24,8 +24,6 @@ export interface TaxFiling {
   amountPaidPhp: number
 }
 
-export type TaxFilingInput = TaxFiling
-
 export type TaxPeriodStatus = 'upcoming' | 'due_soon' | 'overdue' | 'filed'
 
 export interface TaxPeriodSummary {
