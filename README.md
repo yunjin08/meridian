@@ -1,6 +1,6 @@
 # BTC Dashboard
 
-BTC Dashboard is a personal real-time Bitcoin trading dashboard connected to a Binance account. It displays live BTC/USDT price, account balance, candlestick charts with selectable timeframes, RSI/MACD/Bollinger Bands indicators, and a browser-notification alert system for custom price conditions.
+BTC Dashboard is a personal real-time Bitcoin trading dashboard connected to a Binance account. It displays live BTC/USDT price, account balance, candlestick charts with selectable timeframes, RSI/MACD/Bollinger Bands indicators, and a browser-notification alert system for custom price conditions. It also includes an Overview tab that summarises crypto, stocks, and REIT holdings, and a Tax tab for tracking PH 8% flat-rate income tax with BIR deadline reminders.
 
 ## Installation
 
@@ -29,6 +29,10 @@ AUTH_SESSION_SECRET=your_random_session_secret_here
 # Trading 212 (stocks/REITs positions). Optional: TRADING212_ENV=demo for paper trading.
 TRADING212_API_KEY=your_trading212_key
 TRADING212_API_SECRET=your_trading212_secret
+
+# Supabase (tax records)
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
 > **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
@@ -47,6 +51,14 @@ Generate `AUTH_SESSION_SECRET`:
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
+### Supabase (tax records)
+
+The Tax tab persists income entries and filed periods in Supabase. Set it up once:
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open the SQL editor and run `supabase/migrations/0001_tax.sql`. This creates `tax_income_entries` and `tax_filings` with row level security enabled and no policies, so only the service role key (used server-side by `netlify/functions/tax-*.ts`) can read or write them.
+3. Copy the project URL and the service role key (Project Settings → API) into `.env` locally, and into Netlify Site Settings → Environment Variables for production.
+
 ## Usage
 
 ```bash
@@ -55,6 +67,9 @@ npm run dev
 
 # Type-check only
 npm run typecheck
+
+# Run the test suite (Vitest)
+npm test
 
 # Production build
 npm run build
@@ -79,6 +94,8 @@ curl "http://localhost:8888/api/health"
 | State | Zustand v5 |
 | Backend | Netlify Functions (serverless) |
 | Indicators | technicalindicators (RSI, MACD, BB) |
+| Database | Supabase (Postgres, tax records only) |
+| Tests | Vitest |
 | Deployment | Netlify |
 
 ## Architecture
@@ -94,7 +111,7 @@ Browser ──► GET /api/balance ──► Netlify Function ──► Binance 
 
 ## Deployment
 
-Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_SESSION_SECRET` in **Site Settings → Environment Variables**.
+Deploy to Netlify and set `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `AUTH_PASSWORD_HASH`, `AUTH_SESSION_SECRET`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in **Site Settings → Environment Variables**.
 
 ## License
 

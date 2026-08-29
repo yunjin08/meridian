@@ -6,7 +6,7 @@ Personal Bitcoin trading dashboard. Single user. Serverless on Netlify.
 
 ## Project Description
 
-A real-time BTC/USDT trading dashboard connected to a personal Binance account. Shows live price, account balance, a candlestick chart with selectable timeframes, RSI/MACD/Bollinger Bands indicators, and a browser-notification alert system for custom conditions.
+A real-time BTC/USDT trading dashboard connected to a personal Binance account. Shows live price, account balance, a candlestick chart with selectable timeframes, RSI/MACD/Bollinger Bands indicators, a browser-notification alert system for custom conditions, an Overview landing tab summarising crypto, stocks, and REITs, and a Tax tab for PH 8% flat-rate income tax with BIR deadline reminders.
 
 ---
 
@@ -22,6 +22,8 @@ A real-time BTC/USDT trading dashboard connected to a personal Binance account. 
 | State management | Zustand | 5 |
 | Backend | Netlify Functions (serverless, esbuild) | — |
 | Indicators | technicalindicators (RSI, MACD, BB) | 3 |
+| Database | Supabase (Postgres, tax records only) | n/a |
+| Tests | Vitest | n/a |
 | Deployment | Netlify | — |
 
 ---
@@ -60,7 +62,12 @@ All functions live in `netlify/functions/`. Files prefixed `_` are shared module
 | `ticker.ts` | `GET /api/ticker` | None | 24h price stats (WS fallback) |
 | `health.ts` | `GET /api/health` | None | Health check |
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
+| `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
+| `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
 | `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
+| `utils/supabase-client.ts` | — | — | Supabase service-role client + row types |
+| `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Supabase |
+| `utils/tax-validation.ts` | — | — | Request body/param validation for tax handlers |
 | `_binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
 | `_indicators.ts` | — | — | RSI/MACD/BB calculation |
 
@@ -75,27 +82,39 @@ src/
 │   ├── candle.ts            Candle, IndicatorData, CandlesResponse
 │   ├── account.ts           AccountBalance
 │   ├── alert.ts             Alert, AlertCondition discriminated union
+│   ├── tax.ts               TaxIncomeEntry, TaxFiling, TaxPeriod, TaxPeriodSummary
 │   └── websocket.ts         WsTickerMessage, WsKlineMessage, WsConnectionStatus
 ├── store/                   Zustand stores (one per domain)
 │   ├── priceStore.ts        Live price, 24h stats, WS status, lastTickAt
 │   ├── chartStore.ts        Active timeframe, candles[], indicators, isLoading
 │   ├── balanceStore.ts      BTC/USDT balances, fetchedAt
-│   └── alertStore.ts        Alerts[] — persisted to localStorage via Zustand persist
+│   ├── alertStore.ts        Alerts[] — persisted to localStorage via Zustand persist
+│   └── taxStore.ts          entries[], filings[], selectedYear, load/add/edit/remove/markFiled/unmarkFiled
 ├── hooks/                   Side-effect hooks (one concern each)
 │   ├── useBinanceWebSocket.ts  WS lifecycle, stream mgmt, exponential backoff reconnect
 │   ├── useCandles.ts           Fetch candles+indicators, debounced on timeframe change
 │   ├── useBalance.ts           Poll /api/balance every 30s, pause when tab hidden
-│   └── useAlertEvaluator.ts    Subscribe to stores, evaluate conditions, fire notifications
+│   ├── useAlertEvaluator.ts    Subscribe to stores, evaluate conditions, fire notifications
+│   ├── useTaxData.ts           Loads tax entries/filings once on mount
+│   ├── useTaxDeadlines.ts      Next actionable tax period + once-per-threshold notifications
+│   └── usePortfolioSummary.ts  Combines crypto/stock/REIT stores into one PortfolioSummary
 ├── components/
 │   ├── layout/              Header, Dashboard (grid — no logic)
-│   ├── price/               PriceTicker, ConnectionStatus
-│   ├── balance/             BalanceCard
+│   ├── price/               ConnectionStatus
 │   ├── chart/               ChartContainer, TimeframeSelector, IndicatorPanel, ChartLoadingOverlay
-│   └── alerts/              AlertForm, AlertList, AlertItem
+│   ├── alerts/              AlertList, AlertItem
+│   ├── overview/            OverviewSection, PortfolioHero, AssetClassCard, AllocationBar, TopHoldingsList
+│   ├── tax/                 TaxSection, TaxPeriodCard, TaxDeadlineBanner, TaxEntryForm, TaxEntryList, EnableNotificationsButton
+│   └── ui/                  SkeletonBlock (shared loading placeholder)
 └── lib/                     Pure utilities (no React)
     ├── formatters.ts         Price/percent/BTC formatting, lastValue() helper
     ├── notifications.ts      Browser Notification API wrapper + permission flow
-    └── localStorage.ts       Manual read/write helpers (Zustand persist handles alerts)
+    ├── localStorage.ts       Manual read/write helpers (Zustand persist handles alerts)
+    ├── isoDate.ts             Alias-free ISO date parsing/formatting shared with functions
+    ├── tax.ts                 Tax period math: weekend rollover, cumulative credit, status, next actionable
+    ├── taxNotifications.ts    Decides whether a deadline notification fires today
+    ├── taxApi.ts              Fetch wrapper for /api/tax-entries and /api/tax-filings
+    └── portfolioSummary.ts    Aggregates crypto/stock/REIT holdings into PortfolioSummary
 ```
 
 ### State management
@@ -110,13 +129,16 @@ Hooks (`App.tsx`) call `usePriceStore.getState()` / `store.subscribe()` directly
 
 ```bash
 # Always cd into the project first
-cd /Users/jededisondonaire/jed/investing
+cd /home/jed/jed/meridian
 
 # Local development (starts Vite + Netlify Functions together on :8888)
 npm run dev
 
 # Type-check only (fast, no emit)
 npm run typecheck
+
+# Run the test suite (Vitest)
+npm test
 
 # Production build
 npm run build
@@ -140,6 +162,8 @@ BINANCE_API_SECRET=...
 TRADING212_API_KEY=...
 TRADING212_API_SECRET=...
 TRADING212_ENV=live   # or demo
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...   # service role key, server-side only, never VITE_
 ```
 
 **Critical:** never prefix these with `VITE_`. That would inline them into the browser bundle.
@@ -202,15 +226,19 @@ Create the Trading 212 API key with only the `account` and `portfolio` scopes. I
 
 3. **One combined candles endpoint.** Indicators are calculated server-side in the same `candles.ts` function call. There is no separate `/api/indicators` endpoint — that would require a second Binance kline fetch.
 
-4. **No database.** The app is stateless. Alerts persist in localStorage (Zustand persist). Everything else is fetched fresh or held in React state. If you need persistence beyond alerts, reconsider the architecture first.
+4. **Tax records live in Supabase; everything else stays stateless.** Only `tax_income_entries` and `tax_filings` are persisted server-side, and only through `netlify/functions/tax-*.ts` using the service role key. Alerts and the stock watchlist remain in localStorage. Adding another table is an architecture decision, not a convenience.
 
-5. **Always run commands from the repository root.** The working directory is `/Users/jededisondonaire/jed/investing/`.
+5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
 6. **Netlify Functions have a separate `tsconfig.json` and `package.json`.** The functions directory at `netlify/functions/` has its own `tsconfig.json` (NodeNext module resolution, not bundler mode) and its own `node_modules` for `technicalindicators` and `@types/node`.
 
 7. **lightweight-charts v5 API.** Use `chart.addSeries(CandlestickSeries, options)` — not `chart.addCandlestickSeries()`. The v5 API changed this.
 
 8. **Tailwind v4 has no config file.** Don't create `tailwind.config.ts`. Custom tokens go in `@theme {}` inside `src/index.css`. Content detection is automatic via the `@tailwindcss/vite` plugin.
+
+9. **Tax math is pure and tested (`src/lib/tax.ts`).** Components never compute tax; they render `TaxPeriodSummary`.
+
+10. **Function code must never import a `src/` module that uses the `@/` alias, directly or transitively.** Netlify bundles each function with esbuild and no path mapping, so an `@/` import resolves locally but fails in the deployed bundle. Type-only imports from `src/types/*.ts` are fine (types are erased before bundling). `src/lib/isoDate.ts` is the alias-free helper module for logic that functions need to share with the frontend; put more of that kind of code there rather than reaching into files that import `@/`.
 
 ---
 
@@ -220,3 +248,5 @@ Create the Trading 212 API key with only the `account` and `portfolio` scopes. I
 - Alert definitions are localStorage-only — not synced across devices or browsers.
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
+- Deadline notifications fire only while the tab is open; the once-per-threshold markers are per browser.
+- PH public holidays are not modelled in deadline rollover.
