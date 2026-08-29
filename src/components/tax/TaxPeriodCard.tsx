@@ -119,7 +119,14 @@ export function TaxPeriodCard({ summary }: TaxPeriodCardProps) {
       ) : (
         <button
           type="button"
-          onClick={() => setIsMarking(true)}
+          onClick={() => {
+            // Re-seed from the current tax due each time the form opens, so
+            // receipts added earlier in the same visit are reflected instead
+            // of the stale amount captured when the card first mounted.
+            setAmountPaid(summary.taxDuePhp.toFixed(2))
+            setFiledOn(todayIso())
+            setIsMarking(true)
+          }}
           className="self-start px-2.5 py-1 rounded border border-panel-border font-mono text-xs text-text-muted hover:text-text-primary hover:border-text-muted"
         >
           Mark as filed
