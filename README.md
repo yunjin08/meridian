@@ -37,7 +37,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 > **Important:** Create the Binance API key with **Read Info only** — disable Spot Trading, Withdrawal, and all other permissions. Never prefix these with `VITE_` as that would expose them in the browser bundle.
 
-Generate the Trading 212 key in the app under **Settings → API (Beta)** with only the `account` and `portfolio` scopes (no order scopes). The secret is shown once. The public API works for Invest and Stocks ISA accounts only, and reports values in your account's primary currency. See `docs/trading212-api.md`.
+Generate the Trading 212 key in the app under **Settings → API (Beta)**. Enable the **read** scopes (account, portfolio, history, metadata, orders read) and leave every **write** scope off; the dashboard never places orders or edits pies, and a read-only key cannot move money. The secret is shown once. The public API works for Invest and Stocks ISA accounts only, and reports values in your account's primary currency. See `docs/trading212-api.md`.
 
 Generate `AUTH_PASSWORD_HASH` in `salt:hash` format with Node:
 

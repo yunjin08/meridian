@@ -28,3 +28,89 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Landing page motion. Only transform and opacity animate, and everything
+   collapses to its final state under prefers-reduced-motion. */
+@keyframes landing-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.landing-rise {
+  opacity: 0;
+  animation: landing-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+
+.is-visible .landing-reveal,
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes landing-flash-up {
+  from { color: #26a69a; }
+  to   { color: inherit; }
+}
+
+@keyframes landing-flash-down {
+  from { color: #ef5350; }
+  to   { color: inherit; }
+}
+
+.landing-flash-up   { animation: landing-flash-up 0.5s ease-out; }
+.landing-flash-down { animation: landing-flash-down 0.5s ease-out; }
+
+@keyframes landing-flow {
+  from { transform: translateX(-50%); }
+  to   { transform: none; }
+}
+
+.landing-flow {
+  position: relative;
+  overflow: hidden;
+  height: 1px;
+  background-color: #30363d;
+}
+
+.landing-flow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  background: repeating-linear-gradient(90deg, #F7931A 0 6px, transparent 6px 14px);
+  opacity: 0.8;
+  animation: landing-flow 1.6s linear infinite;
+}
+
+.landing-grid-bg {
+  background-image: radial-gradient(rgba(139, 148, 158, 0.16) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse at 50% 0%, black 25%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-rise,
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+  .landing-flow::before,
+  .landing-flash-up,
+  .landing-flash-down {
+    animation: none;
+  }
+}

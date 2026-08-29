@@ -9,11 +9,13 @@ interface ChartState {
   indicators: IndicatorData | null
   isLoading: boolean
   fetchedAt: number | null
+  error: string | null
 
   setActiveInterval: (interval: Timeframe) => void
   setCandles: (candles: Candle[]) => void
   setIndicators: (indicators: IndicatorData) => void
   setLoading: (loading: boolean) => void
+  setError: (error: string | null) => void
   setFetchedAt: (ts: number) => void
   appendCandle: (candle: Candle) => void
   updateLastCandle: (candle: Candle) => void
@@ -25,11 +27,13 @@ export const useChartStore = create<ChartState>()((set) => ({
   indicators: null,
   isLoading: false,
   fetchedAt: null,
+  error: null,
 
   setActiveInterval: (activeInterval) => set({ activeInterval }),
   setCandles: (candles) => set({ candles }),
   setIndicators: (indicators) => set({ indicators }),
   setLoading: (isLoading) => set({ isLoading }),
+  setError: (error) => set({ error }),
   setFetchedAt: (fetchedAt) => set({ fetchedAt }),
 
   appendCandle: (candle) =>
