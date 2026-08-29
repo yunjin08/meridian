@@ -119,6 +119,11 @@ Our current weight budget:
 | Balance poll (30s) | 10 | 2 | 20 |
 | Candle refresh (60s) | 10 | 1 | 10 |
 | Ticker fallback (5s, WS down only) | 1 | 12 | 12 |
-| **Total (normal)** | — | — | **~30** |
+| Crypto P&L (5 min): account + funding + prices | 10 + 1 + 4 | 0.2 | 3 |
+| Crypto P&L (5 min): myTrades, one per held coin (~10) | 20 | 2 | 40 |
+| Crypto P&L (5 min): fiat payments, 18 windows | 1 (IP, sapi) | 3.6 | 4 |
+| **Total (normal)** | — | — | **~80** |
 
-We are using ~2.5% of the rate limit budget under normal operation.
+We are using ~7% of the rate limit budget under normal operation. The Crypto P&L
+figures are averaged over its 5-minute poll; a single refresh spends ~250 weight
+in one burst, still well inside the per-minute limit.
