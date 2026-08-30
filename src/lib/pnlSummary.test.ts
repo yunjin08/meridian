@@ -3,10 +3,11 @@ import { summarisePnl } from '@/lib/pnlSummary'
 import type { StockAccountSummary, StockHolding, StockPosition } from '@/types/portfolio'
 import type { CryptoAssetPnl, CryptoPnlResponse } from '@/types/pnl'
 
-function asset(name: string, netUsdt: number | null, spent = 100): CryptoAssetPnl {
+function asset(name: string, netUsdt: number | null, spent = 100, received = 0): CryptoAssetPnl {
+  const currentValueUsdt = netUsdt === null ? null : spent - received + netUsdt
   return {
-    asset: name, heldQty: 1, priceUsdt: 1, currentValueUsdt: netUsdt === null ? null : spent + netUsdt,
-    boughtQty: 1, soldQty: 0, spentUsdt: spent, receivedUsdt: 0, avgBuyPriceUsdt: spent,
+    asset: name, heldQty: 1, priceUsdt: 1, currentValueUsdt,
+    boughtQty: 1, soldQty: 0, spentUsdt: spent, receivedUsdt: received, avgBuyPriceUsdt: spent,
     netUsdt, unknownCostQty: 0, untrackedQty: 0, ignoredFeeAssets: [],
   }
 }
@@ -17,7 +18,7 @@ function cryptoResponse(assets: CryptoAssetPnl[]): CryptoPnlResponse {
     totals: {
       currentValueUsdt: known.reduce((s, a) => s + (a.currentValueUsdt ?? 0), 0),
       spentUsdt: assets.reduce((s, a) => s + a.spentUsdt, 0),
-      receivedUsdt: 0,
+      receivedUsdt: assets.reduce((s, a) => s + a.receivedUsdt, 0),
       netUsdt: known.reduce((s, a) => s + (a.netUsdt ?? 0), 0),
       hasUnknownCost: false,
       hasUntracked: false,
@@ -57,12 +58,49 @@ describe('summarisePnl', () => {
       positions: {}, account: null, stocks: [],
     })
     expect(s.crypto?.net).toBe(-30)
-    expect(s.crypto?.spent).toBe(300)
+    expect(s.crypto?.netSpent).toBe(300)
     expect(s.crypto?.netPercent).toBeCloseTo(-10)
     expect(s.crypto?.assets.map((a) => a.asset)).toEqual(['BTC', 'ETH', 'X'])
     expect(s.total).toBe(-30)
     expect(s.totalCurrency).toBe('USD')
     expect(s.isMixedCurrency).toBe(false)
+  })
+
+  it('takes sale proceeds straight off what was spent, per coin and in total', () => {
+    // Spent 100, sold 40 back, worth 75 now: 60 is still in, so the coin is up 15.
+    const s = summarisePnl({
+      cryptoPnl: cryptoResponse([asset('SOL', 15, 100, 40)]),
+      positions: {}, account: null, stocks: [],
+    })
+    const sol = s.crypto?.assets[0]
+    expect(sol?.netSpent).toBe(60)
+    expect(sol?.currentValue).toBe(75)
+    expect(sol?.net).toBe(15)
+    expect(sol?.netPercent).toBeCloseTo(25)
+    expect(s.crypto?.netSpent).toBe(60)
+    expect(s.crypto?.netPercent).toBeCloseTo(25)
+  })
+
+  it('drops the percentage once sales have recovered the whole cost', () => {
+    const s = summarisePnl({
+      cryptoPnl: cryptoResponse([asset('ENA', 30, 20, 20)]),   // fully recouped, 30 left on the table
+      positions: {}, account: null, stocks: [],
+    })
+    const ena = s.crypto?.assets[0]
+    expect(ena?.netSpent).toBe(0)
+    expect(ena?.net).toBe(30)
+    expect(ena?.netPercent).toBeNull()
+  })
+
+  it('leaves value and net null when a coin has no price', () => {
+    const s = summarisePnl({
+      cryptoPnl: cryptoResponse([asset('X', null)]),
+      positions: {}, account: null, stocks: [],
+    })
+    expect(s.crypto?.assets[0]?.currentValue).toBeNull()
+    expect(s.crypto?.assets[0]?.net).toBeNull()
+    expect(s.crypto?.assets[0]?.netPercent).toBeNull()
+    expect(s.crypto?.assets[0]?.netSpent).toBe(100)
   })
 
   it('splits Trading 212 unrealized by stock and REIT and keeps realized at account level', () => {

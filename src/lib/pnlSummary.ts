@@ -27,17 +27,27 @@ export interface EquitiesPnl {
   reits: EquityClassPnl
 }
 
+/** One coin reduced to the three figures that matter: money still in, what it is worth, the difference. */
+export interface CryptoAssetRow {
+  asset: string
+  netSpent: number                 // cost of buys minus proceeds of sells already taken out
+  currentValue: number | null
+  net: number | null               // currentValue - netSpent
+  netPercent: number | null        // null once sales have recovered the whole cost
+  untrackedQty: number
+  hasUnknownCost: boolean
+}
+
 export interface CryptoPnl {
   net: number
   currentValue: number
-  spent: number
-  received: number
-  netPercent: number | null        // net / spent
+  netSpent: number                 // total still tied up, sales deducted
+  netPercent: number | null
   hasUnknownCost: boolean
   hasUntracked: boolean
   hasIgnoredFees: boolean
   warnings: string[]
-  assets: CryptoAssetPnl[]         // sorted by absolute net, largest first
+  assets: CryptoAssetRow[]         // sorted by absolute net, largest first
   funding: FiatFunding[]
 }
 
@@ -60,16 +70,32 @@ function percent(numerator: number, denominator: number): number | null {
   return denominator > 0 ? (numerator / denominator) * 100 : null
 }
 
+function toAssetRow(a: CryptoAssetPnl): CryptoAssetRow {
+  // Proceeds of sells come straight off the cost, so the row reads
+  // "still in" minus "worth now" rather than three competing figures.
+  const netSpent = a.spentUsdt - a.receivedUsdt
+  const net = a.currentValueUsdt === null ? null : a.currentValueUsdt - netSpent
+  return {
+    asset: a.asset,
+    netSpent,
+    currentValue: a.currentValueUsdt,
+    net,
+    netPercent: net === null ? null : percent(net, netSpent),
+    untrackedQty: a.untrackedQty,
+    hasUnknownCost: a.unknownCostQty > 0,
+  }
+}
+
 function summariseCrypto(response: CryptoPnlResponse): CryptoPnl {
-  const assets = [...response.assets].sort(
-    (a, b) => Math.abs(b.netUsdt ?? 0) - Math.abs(a.netUsdt ?? 0),
-  )
+  const netSpent = response.totals.spentUsdt - response.totals.receivedUsdt
+  const assets = response.assets
+    .map(toAssetRow)
+    .sort((a, b) => Math.abs(b.net ?? 0) - Math.abs(a.net ?? 0))
   return {
     net: response.totals.netUsdt,
     currentValue: response.totals.currentValueUsdt,
-    spent: response.totals.spentUsdt,
-    received: response.totals.receivedUsdt,
-    netPercent: percent(response.totals.netUsdt, response.totals.spentUsdt),
+    netSpent,
+    netPercent: percent(response.totals.netUsdt, netSpent),
     hasUnknownCost: response.totals.hasUnknownCost,
     hasUntracked: response.totals.hasUntracked,
     hasIgnoredFees: response.totals.hasIgnoredFees,

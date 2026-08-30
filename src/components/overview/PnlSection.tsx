@@ -1,7 +1,6 @@
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
 import { formatMoney, formatPercent } from '@/lib/formatters'
-import type { CryptoPnl, EquitiesPnl, EquityPositionPnl, PnlSummary } from '@/lib/pnlSummary'
-import type { CryptoAssetPnl } from '@/types/pnl'
+import type { CryptoAssetRow, CryptoPnl, EquitiesPnl, EquityPositionPnl, PnlSummary } from '@/lib/pnlSummary'
 
 interface PnlSectionProps {
   pnl: PnlSummary
@@ -39,35 +38,36 @@ function Stat({ label, value, currency, percent }: { label: string; value: numbe
   )
 }
 
-function CryptoRow({ a }: { a: CryptoAssetPnl }) {
-  const percent = a.netUsdt !== null && a.spentUsdt > 0 ? (a.netUsdt / a.spentUsdt) * 100 : null
+function CryptoRow({ a }: { a: CryptoAssetRow }) {
   return (
-    <li className="flex items-center gap-3 py-1.5 font-mono text-xs">
-      <span className="font-semibold text-text-primary w-14">{a.asset}</span>
-      <span className="text-text-muted hidden sm:inline">
-        cost {formatMoney(a.spentUsdt, 'USD')}
-        {a.receivedUsdt > 0 && <> · sold {formatMoney(a.receivedUsdt, 'USD')}</>}
-        {a.avgBuyPriceUsdt !== null && a.priceUsdt !== null && (
-          <> · avg {formatMoney(a.avgBuyPriceUsdt, 'USD')} → now {formatMoney(a.priceUsdt, 'USD')}</>
+    <tr>
+      <td className="py-1.5 align-top">
+        <div className="font-semibold text-text-primary">{a.asset}</div>
+        {a.untrackedQty > 0 && (
+          <div
+            className="text-[10px] text-btc-orange"
+            title="You hold more than Binance spot fills, fiat orders and P2P trades explain (transfer, Convert or another pair). That part has no cost recorded."
+          >
+            {formatQty(a.untrackedQty)} untracked
+          </div>
         )}
-      </span>
-      {a.untrackedQty > 0 && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-btc-orange/40 text-btc-orange" title="Held amount exceeds what Binance spot fills, fiat orders and P2P trades explain (transfer or Convert). Cost basis is partial.">
-          {formatQty(a.untrackedQty)} untracked
-        </span>
-      )}
-      {a.unknownCostQty > 0 && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-panel-border text-text-muted" title="Some fiat purchases had no usable fiat to USDT rate.">
-          cost?
-        </span>
-      )}
-      <span className={`ml-auto tabular-nums ${tone(a.netUsdt)}`}>
-        {a.netUsdt === null ? 'n/a' : signed(a.netUsdt, 'USD')}
-      </span>
-      <span className={`w-16 text-right tabular-nums text-[11px] ${tone(percent)}`}>
-        {percent === null ? '' : formatPercent(percent)}
-      </span>
-    </li>
+        {a.hasUnknownCost && (
+          <div className="text-[10px] text-text-muted" title="Some fiat purchases had no usable rate to price them in dollars.">
+            cost unknown
+          </div>
+        )}
+      </td>
+      <td className="py-1.5 text-right tabular-nums text-text-muted align-top">{formatMoney(a.netSpent, 'USD')}</td>
+      <td className="py-1.5 text-right tabular-nums text-text-primary align-top hidden sm:table-cell">
+        {a.currentValue === null ? 'n/a' : formatMoney(a.currentValue, 'USD')}
+      </td>
+      <td className={`py-1.5 text-right tabular-nums align-top ${tone(a.net)}`}>
+        {a.net === null ? 'n/a' : signed(a.net, 'USD')}
+      </td>
+      <td className={`py-1.5 pl-2 text-right tabular-nums text-[11px] align-top ${tone(a.netPercent)}`}>
+        {a.netPercent === null ? '' : formatPercent(a.netPercent)}
+      </td>
+    </tr>
   )
 }
 
@@ -89,15 +89,15 @@ function CryptoPanel({ crypto, isLoading, error }: { crypto: CryptoPnl | null; i
       ) : (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <Stat label="Net" value={crypto.net} currency="USD" percent={crypto.netPercent} />
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-text-muted font-mono">Invested</div>
-              <div className="font-mono text-lg text-text-primary tabular-nums">{formatMoney(crypto.spent, 'USD')}</div>
+              <div className="text-[10px] uppercase tracking-wider text-text-muted font-mono">Spent</div>
+              <div className="font-mono text-lg text-text-primary tabular-nums">{formatMoney(crypto.netSpent, 'USD')}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-text-muted font-mono">Value now</div>
               <div className="font-mono text-lg text-text-primary tabular-nums">{formatMoney(crypto.currentValue, 'USD')}</div>
             </div>
+            <Stat label="Net" value={crypto.net} currency="USD" percent={crypto.netPercent} />
           </div>
 
           {crypto.funding.length > 0 && (
@@ -106,15 +106,24 @@ function CryptoPanel({ crypto, isLoading, error }: { crypto: CryptoPnl | null; i
             </p>
           )}
 
-          <ul className="mt-3 divide-y divide-panel-border/60">
-            {crypto.assets.map((a) => <CryptoRow key={a.asset} a={a} />)}
-          </ul>
+          <table className="mt-3 w-full font-mono text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-text-muted border-b border-panel-border">
+                <th className="text-left font-normal pb-1">Coin</th>
+                <th className="text-right font-normal pb-1">Spent</th>
+                <th className="text-right font-normal pb-1 hidden sm:table-cell">Value now</th>
+                <th className="text-right font-normal pb-1" colSpan={2}>Net</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-panel-border/60">
+              {crypto.assets.map((a) => <CryptoRow key={a.asset} a={a} />)}
+            </tbody>
+          </table>
 
-          {(crypto.hasUntracked || crypto.hasUnknownCost) && (
-            <p className="mt-3 text-[11px] text-text-muted">
-              Cost basis comes from Binance spot fills on USDT pairs, fiat Buy Crypto orders and P2P trades. Coins with an untracked amount were also received another way (transfer, Convert, another pair), so that part has no cost and their net is overstated.
-            </p>
-          )}
+          <p className="mt-3 text-[11px] text-text-muted">
+            Spent is what you paid, with anything you sold already deducted, so net is simply value now minus spent.
+            {(crypto.hasUntracked || crypto.hasUnknownCost) && ' Coins marked untracked also arrived another way (transfer, Convert, another pair); that part has no cost recorded, so their net looks better than it is.'}
+          </p>
           {crypto.hasIgnoredFees && (
             <p className="mt-2 text-[11px] text-text-muted">
               Trading fees paid in another coin (BNB fee discount) are not priced into the cost, so nets are slightly overstated.
