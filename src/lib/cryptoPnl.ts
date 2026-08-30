@@ -1,5 +1,6 @@
 // Crypto profit-and-loss math. This module is bundled into a Netlify Function,
 // so it must stay free of `@/` imports (esbuild there has no path alias).
+import type { HistoryEvent } from './portfolioHistory.ts'
 import type {
   CryptoAssetPnl,
   CryptoPnlTotals,
@@ -48,6 +49,55 @@ export interface AssetPnlInput {
   usdPerFiat: UsdPerFiat
 }
 
+/**
+ * What one trade did to a coin's position: quantity in or out, and money out or
+ * back. Both the totals and the daily history are built from this, so fee
+ * handling cannot drift between the two.
+ */
+export interface TradeDelta {
+  qty: number                     // positive when coins arrive, negative when they leave
+  cost: number                    // positive when money is spent, negative when it comes back
+  ignoredFeeAsset: string | null  // fee currency that could not be priced
+  unknownCostQty: number          // acquired quantity whose cost could not be established
+}
+
+export function fillDelta(fill: SpotFill, asset: string): TradeDelta {
+  const delta: TradeDelta = { qty: 0, cost: 0, ignoredFeeAsset: null, unknownCostQty: 0 }
+  const feeInAsset = fill.commissionAsset === asset
+  const feeInQuote = fill.commissionAsset === 'USDT'
+
+  if (fill.side === 'BUY') {
+    // A fee charged in the coin just bought reduces what landed in the wallet,
+    // and a fee in USDT is part of what the purchase cost. Anything else (BNB
+    // with the fee discount) has no price here, so it is reported not guessed.
+    delta.qty = feeInAsset ? fill.qty - fill.commission : fill.qty
+    delta.cost = feeInQuote ? fill.quoteQty + fill.commission : fill.quoteQty
+    if (!feeInAsset && !feeInQuote && fill.commission > 0) delta.ignoredFeeAsset = fill.commissionAsset
+    return delta
+  }
+
+  // A sale's fee only shows up in the proceeds when it is charged in USDT.
+  // Charged in anything else, including the coin being sold, it goes unpriced.
+  delta.qty = -fill.qty
+  delta.cost = feeInQuote ? -(fill.quoteQty - fill.commission) : -fill.quoteQty
+  if (!feeInQuote && fill.commission > 0) delta.ignoredFeeAsset = fill.commissionAsset
+  return delta
+}
+
+export function fiatDelta(order: FiatOrder, usdPerFiat: UsdPerFiat): TradeDelta {
+  const rate = usdPerFiat(order.fiatCurrency, order.time)
+  const usd = rate === null ? 0 : order.fiatAmount * rate
+  if (order.side === 'BUY') {
+    return {
+      qty: order.cryptoAmount,
+      cost: usd,
+      ignoredFeeAsset: null,
+      unknownCostQty: rate === null ? order.cryptoAmount : 0,
+    }
+  }
+  return { qty: -order.cryptoAmount, cost: -usd, ignoredFeeAsset: null, unknownCostQty: 0 }
+}
+
 export function computeAssetPnl(input: AssetPnlInput): CryptoAssetPnl {
   const { asset, heldQty, priceUsdt } = input
   let boughtQty = 0
@@ -57,35 +107,22 @@ export function computeAssetPnl(input: AssetPnlInput): CryptoAssetPnl {
   let unknownCostQty = 0
   const ignoredFeeAssets = new Set<string>()
 
-  for (const f of input.fills) {
-    if (f.side === 'BUY') {
-      boughtQty += f.qty
-      spentUsdt += f.quoteQty
-      // A fee taken in the bought asset reduces what landed in the wallet and a fee
-      // in USDT is part of the cost. A fee in a third asset (BNB with the fee
-      // discount) has no USDT price here, so it is reported rather than guessed.
-      if (f.commissionAsset === asset) boughtQty -= f.commission
-      else if (f.commissionAsset === 'USDT') spentUsdt += f.commission
-      else if (f.commission > 0) ignoredFeeAssets.add(f.commissionAsset)
+  function apply(delta: TradeDelta): void {
+    if (delta.qty >= 0) {
+      boughtQty += delta.qty
+      spentUsdt += delta.cost
     } else {
-      soldQty += f.qty
-      receivedUsdt += f.quoteQty
-      if (f.commissionAsset === 'USDT') receivedUsdt -= f.commission
-      else if (f.commission > 0) ignoredFeeAssets.add(f.commissionAsset)
+      soldQty += -delta.qty
+      receivedUsdt += -delta.cost
     }
+    unknownCostQty += delta.unknownCostQty
+    if (delta.ignoredFeeAsset !== null) ignoredFeeAssets.add(delta.ignoredFeeAsset)
   }
 
+  for (const f of input.fills) apply(fillDelta(f, asset))
   for (const o of input.fiatOrders) {
     if (o.cryptoCurrency !== asset) continue
-    const rate = input.usdPerFiat(o.fiatCurrency, o.time)
-    if (o.side === 'BUY') {
-      boughtQty += o.cryptoAmount
-      if (rate === null) unknownCostQty += o.cryptoAmount
-      else spentUsdt += o.fiatAmount * rate
-    } else {
-      soldQty += o.cryptoAmount
-      if (rate !== null) receivedUsdt += o.fiatAmount * rate
-    }
+    apply(fiatDelta(o, input.usdPerFiat))
   }
 
   const explainedQty = boughtQty - soldQty
@@ -113,6 +150,37 @@ export function computeAssetPnl(input: AssetPnlInput): CryptoAssetPnl {
     untrackedQty,
     ignoredFeeAssets: [...ignoredFeeAssets].sort(),
   }
+}
+
+/** Every acquisition and disposal as a dated event, for the daily since-inception curve. */
+export function buildHistoryEvents(
+  assets: ReadonlyArray<{ asset: string; fills: readonly SpotFill[] }>,
+  fiatOrders: readonly FiatOrder[],
+  usdPerFiat: UsdPerFiat,
+): HistoryEvent[] {
+  const events: HistoryEvent[] = []
+
+  for (const { asset, fills } of assets) {
+    for (const fill of fills) {
+      const delta = fillDelta(fill, asset)
+      events.push({ time: fill.time, asset, qtyDelta: delta.qty, costDelta: delta.cost })
+    }
+  }
+
+  for (const order of fiatOrders) {
+    // Buying USDT with pesos funds the account; it only becomes an investment
+    // when that USDT buys a coin, which the spot fills above already record.
+    if (order.cryptoCurrency === 'USDT') continue
+    const delta = fiatDelta(order, usdPerFiat)
+    events.push({
+      time: order.time,
+      asset: order.cryptoCurrency,
+      qtyDelta: delta.qty,
+      costDelta: delta.cost,
+    })
+  }
+
+  return events
 }
 
 export function summariseFunding(orders: readonly FiatOrder[]): FiatFunding[] {

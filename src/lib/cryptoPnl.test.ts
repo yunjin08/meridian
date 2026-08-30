@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildFiatRateLookup,
+  buildHistoryEvents,
   computeAssetPnl,
   summariseFunding,
   totalCryptoPnl,
@@ -86,6 +87,19 @@ describe('computeAssetPnl', () => {
     expect(usdtFee.ignoredFeeAssets).toEqual([])
   })
 
+  it('reports a sale fee charged in the coin sold, which the proceeds do not capture', () => {
+    const pnl = computeAssetPnl({
+      asset: 'BTC',
+      heldQty: 0,
+      priceUsdt: 100_000,
+      fills: [sell(0.01, 600, { commission: 0.00001, commissionAsset: 'BTC' })],
+      fiatOrders: [],
+      usdPerFiat: noRate,
+    })
+    expect(pnl.receivedUsdt).toBe(600)
+    expect(pnl.ignoredFeeAssets).toEqual(['BTC'])
+  })
+
   it('reports fee currencies it cannot price instead of dropping them silently', () => {
     const pnl = computeAssetPnl({
       asset: 'BTC',
@@ -156,6 +170,43 @@ describe('computeAssetPnl', () => {
     expect(pnl.currentValueUsdt).toBeNull()
     expect(pnl.netUsdt).toBeNull()
     expect(pnl.spentUsdt).toBe(50)
+  })
+})
+
+describe('buildHistoryEvents', () => {
+  it('dates every acquisition and disposal, with fees handled as in the totals', () => {
+    const events = buildHistoryEvents(
+      [{ asset: 'BTC', fills: [
+        buy(0.01, 500, { commission: 0.0001, commissionAsset: 'BTC' }),
+        sell(0.004, 300, { commission: 0.3, commissionAsset: 'USDT' }),
+      ] }],
+      [],
+      noRate,
+    )
+    expect(events).toEqual([
+      { time: T0, asset: 'BTC', qtyDelta: 0.0099, costDelta: 500 },
+      { time: T0, asset: 'BTC', qtyDelta: -0.004, costDelta: -299.7 },
+    ])
+  })
+
+  it('records coins bought with fiat but never USDT funding itself', () => {
+    const lookup = buildFiatRateLookup([fiat('BUY', 5_600, 'USDT', 100)])
+    const events = buildHistoryEvents(
+      [],
+      [fiat('BUY', 5_600, 'USDT', 100), fiat('BUY', 2_800, 'BTC', 0.001), fiat('SELL', 2_800, 'BTC', 0.001)],
+      lookup,
+    )
+    expect(events.map((e) => e.asset)).toEqual(['BTC', 'BTC'])
+    expect(events[0]?.qtyDelta).toBeCloseTo(0.001)
+    expect(events[0]?.costDelta).toBeCloseTo(50)
+    expect(events[1]?.qtyDelta).toBeCloseTo(-0.001)
+    expect(events[1]?.costDelta).toBeCloseTo(-50)
+  })
+
+  it('leaves the cost at zero when a fiat purchase cannot be priced', () => {
+    const events = buildHistoryEvents([], [fiat('BUY', 5_600, 'BTC', 0.001)], noRate)
+    expect(events[0]?.costDelta).toBe(0)
+    expect(events[0]?.qtyDelta).toBeCloseTo(0.001)
   })
 })
 
