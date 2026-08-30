@@ -13,7 +13,7 @@ vi.mock('../utils/binance-client.ts', () => {
       super(message)
     }
   }
-  return { BinanceError, binanceFetch: vi.fn() }
+  return { BinanceError, binanceFetch: vi.fn(), binancePublicFetch: vi.fn() }
 })
 
 vi.mock('../utils/binance-holdings.ts', () => ({
@@ -23,7 +23,7 @@ vi.mock('../utils/binance-holdings.ts', () => ({
 }))
 
 import { requireAuth } from '../utils/auth.ts'
-import { binanceFetch, BinanceError } from '../utils/binance-client.ts'
+import { binanceFetch, binancePublicFetch, BinanceError } from '../utils/binance-client.ts'
 import { fetchAssetTotals, fetchPriceMap } from '../utils/binance-holdings.ts'
 import { handler } from '../crypto-pnl.ts'
 
@@ -54,9 +54,15 @@ async function call(overrides: Partial<HandlerEvent> = {}) {
   return { status: res.statusCode, body: res.body ? (JSON.parse(res.body) as unknown) : null }
 }
 
+/** One daily candle: only the open time and the close price are read. */
+function candle(openTime: number, close: string): unknown {
+  return [openTime, '0', '0', '0', close, '0', openTime + 86_399_999, '0', 0, '0', '0', '0']
+}
+
 beforeEach(() => {
   vi.mocked(requireAuth).mockReturnValue(null)
   vi.mocked(binanceFetch).mockReset()
+  vi.mocked(binancePublicFetch).mockReset()
   vi.mocked(fetchAssetTotals).mockReset()
   vi.mocked(fetchPriceMap).mockReset()
 })
@@ -108,6 +114,12 @@ describe('crypto-pnl handler', () => {
       throw new Error(`unexpected path ${path}`)
     })
 
+    vi.mocked(binancePublicFetch).mockImplementation(async (path: string, params: Record<string, string | number> = {}) => {
+      if (path !== '/api/v3/klines') throw new Error(`unexpected path ${path}`)
+      if (params['symbol'] === 'ETHUSDT') return [candle(NOW - 86_400_000, '2000'), candle(NOW, '2000')] as never
+      throw new BinanceError(-1121, 'Invalid symbol.')   // NOPAIR has no USDT pair to chart
+    })
+
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
     const res = await call()
@@ -132,6 +144,14 @@ describe('crypto-pnl handler', () => {
     expect(body.totals.netUsdt).toBeCloseTo(50 + (30 - 100))
     expect(body.warnings).toEqual([])
     expect(body.fetchedAt).toBe(NOW)
+
+    // Every trade happened today, so the curve is a single day: 150 spent on ETH
+    // plus 50 for each of the two NOPAIR purchases, against ETH's 0.1 at 2,000.
+    expect(body.history.points).toHaveLength(1)
+    expect(body.history.points[0]?.spent).toBeCloseTo(250)
+    expect(body.history.points[0]?.value).toBeCloseTo(200)
+    expect(body.history.daysBelowWater).toBe(1)
+    expect(body.history.daysAboveWater).toBe(0)
   })
 
   it('degrades to spot-only P&L with warnings when fiat and P2P history fail', async () => {
@@ -141,8 +161,13 @@ describe('crypto-pnl handler', () => {
       if (path === '/api/v3/myTrades') return [trade('ETHUSDT', true, '0.1', '150')] as never
       throw new BinanceError(-1000, 'System busy')
     })
+    vi.mocked(binancePublicFetch).mockResolvedValue([candle(NOW, '2000')] as never)
 
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
     const res = await call()
+    vi.useRealTimers()
+
     expect(res.status).toBe(200)
     const body = res.body as CryptoPnlResponse
     expect(body.assets[0]?.netUsdt).toBeCloseTo(50)
@@ -150,6 +175,25 @@ describe('crypto-pnl handler', () => {
     expect(body.warnings).toHaveLength(2)
     expect(body.warnings[0]).toMatch(/Fiat Buy Crypto history unavailable/)
     expect(body.warnings[1]).toMatch(/P2P history unavailable/)
+    expect(body.history.points).toHaveLength(1)   // spot fills alone still draw the curve
+  })
+
+  it('keeps the P&L when daily prices fail and says the chart cannot be drawn', async () => {
+    vi.mocked(fetchAssetTotals).mockResolvedValue(new Map([['ETH', { free: 0.1, locked: 0 }]]))
+    vi.mocked(fetchPriceMap).mockResolvedValue(new Map([['ETHUSDT', 2_000]]))
+    vi.mocked(binanceFetch).mockImplementation(async (path: string) => {
+      if (path === '/api/v3/myTrades') return [trade('ETHUSDT', true, '0.1', '150')] as never
+      return fiatResponse([]) as never
+    })
+    vi.mocked(binancePublicFetch).mockRejectedValue(new BinanceError(-1003, 'Too many requests'))
+
+    const res = await call()
+    expect(res.status).toBe(200)
+    const body = res.body as CryptoPnlResponse
+    expect(body.assets[0]?.netUsdt).toBeCloseTo(50)
+    expect(body.history.points).toEqual([])
+    expect(body.warnings).toHaveLength(1)
+    expect(body.warnings[0]).toMatch(/Daily price history unavailable/)
   })
 
   it('maps Binance failures to 502', async () => {

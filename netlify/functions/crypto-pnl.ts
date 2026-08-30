@@ -1,19 +1,23 @@
 import type { Handler } from '@netlify/functions'
-import { binanceFetch, BinanceError } from './utils/binance-client.ts'
+import { binanceFetch, binancePublicFetch, BinanceError } from './utils/binance-client.ts'
 import { fetchAssetTotals, fetchPriceMap, getAssetUsdtPrice } from './utils/binance-holdings.ts'
 import { preflight, ok, badGateway, internalError } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
 import {
   buildFiatRateLookup,
+  buildHistoryEvents,
   computeAssetPnl,
   summariseFunding,
   totalCryptoPnl,
 } from '../../src/lib/cryptoPnl.ts'
+import { buildPortfolioHistory, EMPTY_PORTFOLIO_HISTORY } from '../../src/lib/portfolioHistory.ts'
+import { toIsoDate } from '../../src/lib/isoDate.ts'
 import type {
   BinanceC2cHistoryResponse,
   BinanceC2cOrder,
   BinanceFiatPayment,
   BinanceFiatPaymentsResponse,
+  BinanceKlineArray,
   BinanceMyTrade,
 } from '../../src/types/binance.ts'
 import type { CryptoPnlResponse, FiatOrder, SpotFill } from '../../src/types/pnl.ts'
@@ -26,6 +30,8 @@ const FIAT_ROWS = 500                    // Binance maximum per page
 const P2P_WINDOW_DAYS = 30               // c2c history: documented 30-day maximum interval
 const P2P_ROWS = 100                     // Binance maximum per page
 const MAX_PAGES = 10                     // a window with thousands of orders is not a personal account
+const KLINE_LIMIT = 1000                 // Binance maximum per call, about 2.7 years of daily candles
+const KLINE_MAX_CALLS = 3                // 8 years of daily candles, longer than Binance spot has existed for most coins
 const RETRY_ATTEMPTS = 2                 // one retry on a transient Binance failure
 const RETRY_DELAY_MS = 300
 const CONCURRENCY = 8
@@ -222,6 +228,87 @@ async function fetchFiatOrders(now: number): Promise<HistorySource> {
   return { orders: [...fiat.orders, ...p2p.orders], warnings: [...fiat.warnings, ...p2p.warnings] }
 }
 
+/** Daily closes for one coin from `startTime` to now, keyed by UTC date. */
+async function fetchDailyCloses(asset: string, startTime: number, now: number): Promise<Map<string, number>> {
+  const closes = new Map<string, number>()
+  let cursor = startTime
+
+  for (let call = 0; call < KLINE_MAX_CALLS && cursor <= now; call += 1) {
+    let candles: BinanceKlineArray[]
+    try {
+      candles = await withRetry(() => binancePublicFetch<BinanceKlineArray[]>('/api/v3/klines', {
+        symbol: `${asset}USDT`,
+        interval: '1d',
+        startTime: cursor,
+        limit: KLINE_LIMIT,
+      }))
+    } catch (err) {
+      // A coin with no USDT pair simply has no curve; the rest of the chart stands.
+      if (err instanceof BinanceError && err.code === INVALID_SYMBOL_CODE) return closes
+      throw err
+    }
+
+    for (const candle of candles) {
+      closes.set(toIsoDate(new Date(candle[0])), Number.parseFloat(candle[4]))
+    }
+    const last = candles.at(-1)
+    if (candles.length < KLINE_LIMIT || last === undefined) break
+    cursor = last[0] + MS_PER_DAY
+  }
+
+  return closes
+}
+
+interface HistoryResult {
+  history: CryptoPnlResponse['history']
+  warnings: string[]
+}
+
+async function buildHistory(
+  held: ReadonlyArray<{ asset: string }>,
+  fills: readonly SpotFill[][],
+  fiatOrders: readonly FiatOrder[],
+  usdPerFiat: ReturnType<typeof buildFiatRateLookup>,
+  assets: ReadonlyArray<{ asset: string; heldQty: number; boughtQty: number; soldQty: number }>,
+  now: number,
+): Promise<HistoryResult> {
+  const events = buildHistoryEvents(
+    held.map((h, i) => ({ asset: h.asset, fills: fills[i] ?? [] })),
+    fiatOrders,
+    usdPerFiat,
+  )
+  if (events.length === 0) return { history: EMPTY_PORTFOLIO_HISTORY, warnings: [] }
+
+  const firstEventTime = Math.min(...events.map((e) => e.time))
+  const symbols = [...new Set(events.map((e) => e.asset))]
+
+  try {
+    const series = await mapWithConcurrency(symbols, CONCURRENCY, (asset) =>
+      fetchDailyCloses(asset, firstEventTime - MS_PER_DAY, now),
+    )
+    const prices = new Map(symbols.map((asset, i) => [asset, series[i] ?? new Map<string, number>()]))
+    // Whatever the trades do not account for, in either direction: coins that
+    // arrived some other way, or coins bought here and later withdrawn. Applying
+    // the difference from day one makes the curve end on today's real value.
+    const offset = new Map<string, number>()
+    for (const a of assets) {
+      const unexplained = a.heldQty - (a.boughtQty - a.soldQty)
+      if (Math.abs(unexplained) > 1e-12) offset.set(a.asset, unexplained)
+    }
+    return {
+      history: buildPortfolioHistory(events, prices, offset, toIsoDate(new Date(now))),
+      warnings: [],
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'unknown error'
+    console.error('[crypto-pnl] daily prices unavailable:', msg)
+    return {
+      history: EMPTY_PORTFOLIO_HISTORY,
+      warnings: [`Daily price history unavailable (${msg}); the chart cannot be drawn.`],
+    }
+  }
+}
+
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight()
   const unauthorizedResponse = requireAuth(event)
@@ -259,13 +346,17 @@ export const handler: Handler = async (event) => {
         usdPerFiat,
       }),
     )
+    const { history, warnings: historyWarnings } = await buildHistory(
+      held, fills, fiatOrders, usdPerFiat, assets, now,
+    )
     assets.sort((a, b) => (b.currentValueUsdt ?? 0) - (a.currentValueUsdt ?? 0))
 
     const response: CryptoPnlResponse = {
       assets,
       totals: totalCryptoPnl(assets),
       funding: summariseFunding(fiatOrders),
-      warnings: fiat.warnings,
+      history,
+      warnings: [...fiat.warnings, ...historyWarnings],
       fetchedAt: now,
     }
     return ok(response)
