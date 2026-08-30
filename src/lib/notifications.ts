@@ -16,7 +16,7 @@ export function sendNotification(title: string, body: string, tag: string): void
   new Notification(title, {
     body,
     tag,          // prevents duplicate notifications for the same alert
-    icon: '/favicon.ico',
+    icon: '/favicon.svg',
   })
 }
 
