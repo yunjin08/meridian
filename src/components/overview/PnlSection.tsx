@@ -18,6 +18,13 @@ function signed(value: number, currency: string): string {
   return `${value >= 0 ? '+' : ''}${formatMoney(value, currency)}`
 }
 
+/** Coin quantities span BTC dust to thousands of tokens; show enough digits to be meaningful, no more. */
+function formatQty(qty: number): string {
+  if (qty >= 100) return qty.toFixed(0)
+  if (qty >= 1) return qty.toFixed(2)
+  return qty.toPrecision(3)
+}
+
 function Stat({ label, value, currency, percent }: { label: string; value: number; currency: string; percent?: number | null }) {
   return (
     <div>
@@ -42,8 +49,8 @@ function CryptoRow({ a }: { a: CryptoAssetPnl }) {
         {a.receivedUsdt > 0 && <> · sold {formatMoney(a.receivedUsdt, 'USD')}</>}
       </span>
       {a.untrackedQty > 0 && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-btc-orange/40 text-btc-orange" title="Held amount exceeds what Binance spot fills and fiat orders explain (transfer or Convert). Cost basis is partial.">
-          partial
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-btc-orange/40 text-btc-orange" title="Held amount exceeds what Binance spot fills, fiat orders and P2P trades explain (transfer or Convert). Cost basis is partial.">
+          {formatQty(a.untrackedQty)} untracked
         </span>
       )}
       {a.unknownCostQty > 0 && (
@@ -102,7 +109,7 @@ function CryptoPanel({ crypto, isLoading, error }: { crypto: CryptoPnl | null; i
 
           {(crypto.hasUntracked || crypto.hasUnknownCost) && (
             <p className="mt-3 text-[11px] text-text-muted">
-              Cost basis comes from Binance spot fills on USDT pairs and fiat Buy Crypto orders. Coins marked partial were also received another way (transfer, Convert), so their net is overstated.
+              Cost basis comes from Binance spot fills on USDT pairs, fiat Buy Crypto orders and P2P trades. Coins with an untracked amount were also received another way (transfer, Convert, another pair), so that part has no cost and their net is overstated.
             </p>
           )}
           {crypto.hasIgnoredFees && (
