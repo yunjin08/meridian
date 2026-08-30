@@ -59,10 +59,25 @@ export interface CryptoPnlTotals {
   hasIgnoredFees: boolean
 }
 
+/** One day of the since-inception curve. */
+export interface PortfolioHistoryPoint {
+  date: string                  // YYYY-MM-DD
+  spent: number                 // cumulative cost of coins held, sales already deducted
+  value: number                 // those coins repriced at that day's close
+}
+
+export interface PortfolioHistory {
+  points: PortfolioHistoryPoint[]
+  daysAboveWater: number
+  daysBelowWater: number
+  lastCrossedOn: string | null  // last day the two lines swapped places
+}
+
 export interface CryptoPnlResponse {
   assets: CryptoAssetPnl[]
   totals: CryptoPnlTotals
   funding: FiatFunding[]
+  history: PortfolioHistory
   warnings: string[]            // partial-data notices, e.g. fiat history unavailable
   fetchedAt: number
 }
