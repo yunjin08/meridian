@@ -63,7 +63,7 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `ticker.ts` | `GET /api/ticker` | None | 24h price stats (WS fallback) |
 | `health.ts` | `GET /api/health` | None | Health check |
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
-| `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades |
+| `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades, plus the daily spent-vs-value curve |
 | `utils/binance-holdings.ts` | — | — | Wallet totals, price map, USDT pricing shared by balance and crypto-pnl |
 | `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
 | `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
@@ -106,7 +106,7 @@ src/
 │   ├── price/               ConnectionStatus
 │   ├── chart/               ChartContainer, TimeframeSelector, IndicatorPanel, ChartLoadingOverlay
 │   ├── alerts/              AlertList, AlertItem
-│   ├── overview/            OverviewSection, PortfolioHero, AssetClassCard, PnlSection, AllocationBar, TopHoldingsList
+│   ├── overview/            OverviewSection, PortfolioHero, AssetClassCard, PnlSection, PortfolioHistoryChart, AllocationBar, TopHoldingsList
 │   ├── tax/                 TaxSection, TaxPeriodCard, TaxDeadlineBanner, TaxEntryForm, TaxEntryList, EnableNotificationsButton
 │   └── ui/                  SkeletonBlock (shared loading placeholder)
 └── lib/                     Pure utilities (no React)
@@ -119,6 +119,8 @@ src/
     ├── taxApi.ts              Fetch wrapper for /api/tax-entries and /api/tax-filings
     ├── portfolioSummary.ts    Aggregates crypto/stock/REIT holdings into PortfolioSummary
     ├── cryptoPnl.ts           Alias-free crypto cost basis and net P&L math (bundled into crypto-pnl.ts)
+    ├── portfolioHistory.ts    Alias-free daily spent-vs-value curve and above/below-water bands
+    ├── chartGeometry.ts       Pure SVG scale and path building for the history chart
     └── pnlSummary.ts          Combines crypto P&L with Trading 212 realized/unrealized into PnlSummary
 ```
 

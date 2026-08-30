@@ -6,7 +6,7 @@ Visitors see a public landing page with live BTC market data and nothing from th
 
 ## What it does
 
-- **Overview**: total portfolio value across crypto, stocks and REITs, 24h change, all-time profit and loss (per coin from Binance spot fills and fiat orders, per position from Trading 212), allocation by class, top holdings, and a banner when a tax deadline is near.
+- **Overview**: total portfolio value across crypto, stocks and REITs, 24h change, all-time profit and loss (per coin from Binance spot fills, fiat orders and P2P trades, per position from Trading 212), a day-by-day chart of money in against value since the first purchase, allocation by class, top holdings, and a banner when a tax deadline is near.
 - **Crypto**: Binance holdings priced live over the public WebSocket, candlestick chart with 1m to 1d timeframes, RSI / MACD / Bollinger Bands computed server-side, and per-asset trade history (spent, received, net result).
 - **Stocks and REITs**: Trading 212 positions, cost basis, cash and realized P&L through a read-only key; Finnhub quotes for the watchlist; the same chart and indicators per ticker.
 - **Tax**: log gross receipts in PHP; the app applies the 8% flat-rate option with the ₱250,000 annual exemption, computes 1701Q and 1701A amounts, tracks BIR deadlines, and notifies at 30 / 14 / 7 / 1 days.

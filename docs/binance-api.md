@@ -123,8 +123,9 @@ Our current weight budget:
 | Crypto P&L (5 min): myTrades, one per held coin (~10) | 20 | 2 | 40 |
 | Crypto P&L (5 min): fiat payments, 18 windows | 1 (IP, sapi) | 3.6 | 4 |
 | Crypto P&L (5 min): P2P history, 50 windows (30-day cap) | 1 (IP, sapi) | 10 | 10 |
-| **Total (normal)** | — | — | **~90** |
+| Crypto P&L (5 min): daily klines, one per held coin (~10) | 5 | 2 | 10 |
+| **Total (normal)** | — | — | **~100** |
 
 We are using ~8% of the rate limit budget under normal operation. The Crypto P&L
-figures are averaged over its 5-minute poll; a single refresh spends ~300 weight
+figures are averaged over its 5-minute poll; a single refresh spends ~350 weight
 in one burst, still well inside the per-minute limit.
