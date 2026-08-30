@@ -47,6 +47,9 @@ function CryptoRow({ a }: { a: CryptoAssetPnl }) {
       <span className="text-text-muted hidden sm:inline">
         cost {formatMoney(a.spentUsdt, 'USD')}
         {a.receivedUsdt > 0 && <> · sold {formatMoney(a.receivedUsdt, 'USD')}</>}
+        {a.avgBuyPriceUsdt !== null && a.priceUsdt !== null && (
+          <> · avg {formatMoney(a.avgBuyPriceUsdt, 'USD')} → now {formatMoney(a.priceUsdt, 'USD')}</>
+        )}
       </span>
       {a.untrackedQty > 0 && (
         <span className="text-[10px] px-1.5 py-0.5 rounded border border-btc-orange/40 text-btc-orange" title="Held amount exceeds what Binance spot fills, fiat orders and P2P trades explain (transfer or Convert). Cost basis is partial.">
