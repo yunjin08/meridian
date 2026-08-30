@@ -1,5 +1,5 @@
 import { TAX_ANNUAL_EXEMPTION_PHP, TAX_DEADLINE_WARNING_DAYS, TAX_RATE } from '@/constants'
-import { parseIsoDate, toIsoDate } from '@/lib/isoDate'
+import { addDays, daysBetween, parseIsoDate } from '@/lib/isoDate'
 import type {
   TaxFiling,
   TaxIncomeEntry,
@@ -12,11 +12,9 @@ import type {
 // `isValidIsoDate` from `@/lib/tax`. The implementation lives in
 // `@/lib/isoDate`, which stays free of `@/` imports because it is also
 // bundled directly into a Netlify Function.
-export { isValidIsoDate } from '@/lib/isoDate'
+export { addDays, daysBetween, isValidIsoDate } from '@/lib/isoDate'
 
 export const TAX_PERIODS: readonly TaxPeriod[] = ['Q1', 'Q2', 'Q3', 'ANNUAL']
-
-const MS_PER_DAY = 86_400_000
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -25,17 +23,6 @@ function pad2(n: number): string {
 /** The user's local calendar date, as YYYY-MM-DD. */
 export function todayIso(now: Date = new Date()): string {
   return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
-}
-
-export function addDays(iso: string, days: number): string {
-  const date = parseIsoDate(iso)
-  date.setUTCDate(date.getUTCDate() + days)
-  return toIsoDate(date)
-}
-
-/** Signed whole days from `from` to `to`. */
-export function daysBetween(from: string, to: string): number {
-  return Math.round((parseIsoDate(to).getTime() - parseIsoDate(from).getTime()) / MS_PER_DAY)
 }
 
 export function daysUntil(deadline: string, today: string): number {

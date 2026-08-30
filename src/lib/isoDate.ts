@@ -26,3 +26,16 @@ export function isValidIsoDate(iso: string): boolean {
   const parsed = parseIsoDate(iso)
   return !Number.isNaN(parsed.getTime()) && toIsoDate(parsed) === iso
 }
+
+const MS_PER_DAY = 86_400_000
+
+export function addDays(iso: string, days: number): string {
+  const date = parseIsoDate(iso)
+  date.setUTCDate(date.getUTCDate() + days)
+  return toIsoDate(date)
+}
+
+/** Signed whole days from `from` to `to`. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((parseIsoDate(to).getTime() - parseIsoDate(from).getTime()) / MS_PER_DAY)
+}
