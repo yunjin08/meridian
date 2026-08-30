@@ -1,5 +1,5 @@
 import type { StockAccountSummary, StockHolding, StockPosition } from '@/types/portfolio'
-import type { CryptoAssetPnl, CryptoPnlResponse, FiatFunding } from '@/types/pnl'
+import type { CryptoAssetPnl, CryptoPnlResponse, FiatFunding, PortfolioHistory } from '@/types/pnl'
 
 const USD = 'USD'
 
@@ -49,6 +49,7 @@ export interface CryptoPnl {
   warnings: string[]
   assets: CryptoAssetRow[]         // sorted by absolute net, largest first
   funding: FiatFunding[]
+  history: PortfolioHistory
 }
 
 export interface PnlSummary {
@@ -102,6 +103,7 @@ function summariseCrypto(response: CryptoPnlResponse): CryptoPnl {
     warnings: response.warnings,
     assets,
     funding: response.funding,
+    history: response.history,
   }
 }
 

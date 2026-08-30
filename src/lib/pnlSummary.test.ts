@@ -25,6 +25,7 @@ function cryptoResponse(assets: CryptoAssetPnl[]): CryptoPnlResponse {
       hasIgnoredFees: false,
     },
     funding: [{ currency: 'PHP', totalIn: 20_000, totalOut: 0, usdtBought: 350, usdtSold: 0 }],
+    history: { points: [], daysAboveWater: 0, daysBelowWater: 0, lastCrossedOn: null },
     warnings: [],
     fetchedAt: 1,
   }

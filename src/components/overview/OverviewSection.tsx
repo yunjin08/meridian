@@ -2,11 +2,13 @@ import { AllocationBar } from '@/components/overview/AllocationBar'
 import { AssetClassCard } from '@/components/overview/AssetClassCard'
 import { PnlSection } from '@/components/overview/PnlSection'
 import { PortfolioHero } from '@/components/overview/PortfolioHero'
+import { PortfolioHistoryChart } from '@/components/overview/PortfolioHistoryChart'
 import { TopHoldingsList } from '@/components/overview/TopHoldingsList'
 import { TaxDeadlineBanner } from '@/components/tax/TaxDeadlineBanner'
 import { usePnlSummary } from '@/hooks/usePnlSummary'
 import { usePortfolioSummary } from '@/hooks/usePortfolioSummary'
 import { formatMoney } from '@/lib/formatters'
+import { EMPTY_PORTFOLIO_HISTORY } from '@/lib/portfolioHistory'
 import { useBalanceStore } from '@/store/balanceStore'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import { useStockPositionsStore } from '@/store/stockPositionsStore'
@@ -45,6 +47,10 @@ export function OverviewSection() {
         <AssetClassCard label="Stocks" tab="stocks" summary={summary.classes.stock}  total={summary.total} accentClass="bg-bull-green" isLoading={equitiesLoading} {...(tradingDetail === undefined ? {} : { detail: tradingDetail })} />
         <AssetClassCard label="REITs"  tab="reits"  summary={summary.classes.reit}   total={summary.total} accentClass="bg-blue-400"  isLoading={equitiesLoading} />
       </div>
+
+      {(pnl.crypto !== null || pnlLoading) && (
+        <PortfolioHistoryChart history={pnl.crypto?.history ?? EMPTY_PORTFOLIO_HISTORY} isLoading={pnlLoading} />
+      )}
 
       <PnlSection pnl={pnl} isLoading={pnlLoading || positionsLoading} error={pnlError} />
 
