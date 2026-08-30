@@ -31,19 +31,28 @@ export function PortfolioHero({ summary, pnl, isLoading, error }: PortfolioHeroP
           <div className="mt-2 text-4xl md:text-5xl font-mono font-bold text-text-primary tabular-nums">
             {formatMoney(summary.total, summary.totalCurrency)}
           </div>
-          <div className="mt-2 flex items-baseline gap-3 font-mono text-sm">
-            <span className={changeColor}>
-              {isPositive ? '+' : ''}{formatMoney(summary.change24hUsd, summary.totalCurrency)}
-            </span>
-            {summary.change24hPercent !== null && (
-              <span className={`${changeColor} text-xs`}>{formatPercent(summary.change24hPercent)}</span>
-            )}
-            <span className="text-text-muted text-xs">24h</span>
-            {pnl.total !== null && (
-              <span className={`text-xs ${pnl.total >= 0 ? 'text-bull-green' : 'text-bear-red'}`}>
-                · {pnl.total >= 0 ? '+' : ''}{formatMoney(pnl.total, pnl.totalCurrency)} all-time net
-              </span>
-            )}
+          {/* Two different questions: how did today go, and am I up since I started. Kept apart so neither reads as the other. */}
+          <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2 font-mono">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-text-muted">Last 24 hours</div>
+              <div className={`text-sm ${changeColor}`}>
+                {isPositive ? '+' : ''}{formatMoney(summary.change24hUsd, summary.totalCurrency)}
+                {summary.change24hPercent !== null && (
+                  <span className="ml-2 text-xs">{formatPercent(summary.change24hPercent)}</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-text-muted">All-time net</div>
+              {pnl.total === null ? (
+                <div className="text-sm text-text-muted">loading…</div>
+              ) : (
+                <div className={`text-sm ${pnl.total >= 0 ? 'text-bull-green' : 'text-bear-red'}`}>
+                  {pnl.total >= 0 ? '+' : ''}{formatMoney(pnl.total, pnl.totalCurrency)}
+                  <span className="ml-2 text-xs text-text-muted">vs. what you invested</span>
+                </div>
+              )}
+            </div>
             {summary.asOf !== null && (
               <span className="ml-auto text-text-muted text-[11px]">as of {formatTimestamp(summary.asOf)}</span>
             )}
