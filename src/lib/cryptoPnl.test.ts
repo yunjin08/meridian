@@ -16,7 +16,7 @@ function sell(qty: number, quoteQty: number, extra: Partial<SpotFill> = {}): Spo
   return { side: 'SELL', qty, quoteQty, commission: 0, commissionAsset: 'BNB', time: T0, ...extra }
 }
 function fiat(side: 'BUY' | 'SELL', fiatAmount: number, cryptoCurrency: string, cryptoAmount: number, time = T0): FiatOrder {
-  return { side, fiatCurrency: 'PHP', fiatAmount, cryptoCurrency, cryptoAmount, time }
+  return { source: 'fiat', side, fiatCurrency: 'PHP', fiatAmount, cryptoCurrency, cryptoAmount, time }
 }
 
 const noRate = () => null
@@ -165,7 +165,7 @@ describe('summariseFunding', () => {
       fiat('BUY', 5_600, 'USDT', 100),
       fiat('BUY', 1_000, 'BTC', 0.0002),
       fiat('SELL', 2_800, 'USDT', 50),
-      { side: 'BUY', fiatCurrency: 'USD', fiatAmount: 20, cryptoCurrency: 'USDT', cryptoAmount: 20, time: T0 },
+      { source: 'p2p', side: 'BUY', fiatCurrency: 'USD', fiatAmount: 20, cryptoCurrency: 'USDT', cryptoAmount: 20, time: T0 },
     ])
     expect(funding).toEqual([
       { currency: 'PHP', totalIn: 6_600, totalOut: 2_800, usdtBought: 100, usdtSold: 50 },

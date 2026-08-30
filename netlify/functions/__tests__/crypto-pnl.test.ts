@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HandlerEvent } from '@netlify/functions'
-import type { BinanceFiatPaymentsResponse, BinanceMyTrade } from '../../../src/types/binance.ts'
+import type { BinanceC2cHistoryResponse, BinanceFiatPaymentsResponse, BinanceMyTrade } from '../../../src/types/binance.ts'
 import type { CryptoPnlResponse } from '../../../src/types/pnl.ts'
 
 vi.mock('../utils/auth.ts', () => ({
@@ -37,6 +37,10 @@ function trade(symbol: string, isBuyer: boolean, qty: string, quoteQty: string):
 }
 
 function fiatResponse(rows: BinanceFiatPaymentsResponse['data']): BinanceFiatPaymentsResponse {
+  return { code: '000000', message: 'success', data: rows, total: rows?.length ?? 0, success: true }
+}
+
+function p2pResponse(rows: BinanceC2cHistoryResponse['data']): BinanceC2cHistoryResponse {
   return { code: '000000', message: 'success', data: rows, total: rows?.length ?? 0, success: true }
 }
 
@@ -91,6 +95,16 @@ describe('crypto-pnl handler', () => {
         }
         return fiatResponse([]) as never
       }
+      if (path === '/sapi/v1/c2c/orderMatch/listUserOrderHistory') {
+        // One P2P purchase of NOPAIR in the latest BUY window explains another unit of the 3 held.
+        if (params['tradeType'] === 'BUY' && params['endTimestamp'] === NOW) {
+          return p2pResponse([
+            { orderNumber: 'p1', advNo: 'a1', tradeType: 'BUY', asset: 'NOPAIR', fiat: 'PHP', fiatSymbol: '₱', amount: '1', totalPrice: '2800', unitPrice: '2800', orderStatus: 'COMPLETED', createTime: NOW - 2_000, commission: '0', counterPartNickName: 'x', advertisementRole: 'TAKER' },
+            { orderNumber: 'p2', advNo: 'a2', tradeType: 'BUY', asset: 'NOPAIR', fiat: 'PHP', fiatSymbol: '₱', amount: '5', totalPrice: '1', unitPrice: '0', orderStatus: 'CANCELLED', createTime: NOW - 1_000, commission: '0', counterPartNickName: 'x', advertisementRole: 'TAKER' },
+          ]) as never
+        }
+        return p2pResponse([]) as never
+      }
       throw new Error(`unexpected path ${path}`)
     })
 
@@ -109,18 +123,18 @@ describe('crypto-pnl handler', () => {
     expect(eth?.netUsdt).toBeCloseTo(50)
 
     const nopair = body.assets[1]
-    expect(nopair?.boughtQty).toBe(1)                       // from the fiat order
-    expect(nopair?.spentUsdt).toBeCloseTo(2_800 * (100 / 5_600))  // PHP cost through the USDT rate
-    expect(nopair?.untrackedQty).toBeCloseTo(2)             // held 3, history explains 1
+    expect(nopair?.boughtQty).toBe(2)                       // one fiat order plus one completed P2P trade
+    expect(nopair?.spentUsdt).toBeCloseTo(2 * 2_800 * (100 / 5_600))  // PHP cost through the USDT rate
+    expect(nopair?.untrackedQty).toBeCloseTo(1)             // held 3, history explains 2
 
-    expect(body.funding).toEqual([{ currency: 'PHP', totalIn: 8_400, totalOut: 0, usdtBought: 100, usdtSold: 0 }])
+    expect(body.funding).toEqual([{ currency: 'PHP', totalIn: 11_200, totalOut: 0, usdtBought: 100, usdtSold: 0 }])
     expect(body.totals.hasUntracked).toBe(true)
-    expect(body.totals.netUsdt).toBeCloseTo(50 + (30 - 50))
+    expect(body.totals.netUsdt).toBeCloseTo(50 + (30 - 100))
     expect(body.warnings).toEqual([])
     expect(body.fetchedAt).toBe(NOW)
   })
 
-  it('degrades to spot-only P&L with a warning when fiat history fails', async () => {
+  it('degrades to spot-only P&L with warnings when fiat and P2P history fail', async () => {
     vi.mocked(fetchAssetTotals).mockResolvedValue(new Map([['ETH', { free: 0.1, locked: 0 }]]))
     vi.mocked(fetchPriceMap).mockResolvedValue(new Map([['ETHUSDT', 2_000]]))
     vi.mocked(binanceFetch).mockImplementation(async (path: string) => {
@@ -133,8 +147,9 @@ describe('crypto-pnl handler', () => {
     const body = res.body as CryptoPnlResponse
     expect(body.assets[0]?.netUsdt).toBeCloseTo(50)
     expect(body.funding).toEqual([])
-    expect(body.warnings).toHaveLength(1)
-    expect(body.warnings[0]).toMatch(/Fiat purchase history unavailable/)
+    expect(body.warnings).toHaveLength(2)
+    expect(body.warnings[0]).toMatch(/Fiat Buy Crypto history unavailable/)
+    expect(body.warnings[1]).toMatch(/P2P history unavailable/)
   })
 
   it('maps Binance failures to 502', async () => {

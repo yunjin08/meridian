@@ -96,3 +96,30 @@ export interface BinanceFiatPaymentsResponse {
   total: number
   success: boolean
 }
+
+// GET /sapi/v1/c2c/orderMatch/listUserOrderHistory (P2P trades with other users).
+// amount is the crypto quantity, totalPrice the fiat paid or received.
+export interface BinanceC2cOrder {
+  orderNumber: string
+  advNo: string
+  tradeType: 'BUY' | 'SELL'
+  asset: string
+  fiat: string
+  fiatSymbol: string
+  amount: string
+  totalPrice: string
+  unitPrice: string
+  orderStatus: string       // "COMPLETED" | "CANCELLED" | "IN_APPEAL" | ...
+  createTime: number
+  commission: string
+  counterPartNickName: string
+  advertisementRole: 'TAKER' | 'MAKER'
+}
+
+export interface BinanceC2cHistoryResponse {
+  code: string
+  message: string
+  data?: BinanceC2cOrder[]
+  total: number
+  success: boolean
+}

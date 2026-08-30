@@ -9,18 +9,26 @@ import {
   summariseFunding,
   totalCryptoPnl,
 } from '../../src/lib/cryptoPnl.ts'
-import type { BinanceFiatPayment, BinanceFiatPaymentsResponse, BinanceMyTrade } from '../../src/types/binance.ts'
+import type {
+  BinanceC2cHistoryResponse,
+  BinanceC2cOrder,
+  BinanceFiatPayment,
+  BinanceFiatPaymentsResponse,
+  BinanceMyTrade,
+} from '../../src/types/binance.ts'
 import type { CryptoPnlResponse, FiatOrder, SpotFill } from '../../src/types/pnl.ts'
 
 const MIN_USDT_VALUE = 1                 // same dust threshold as balance.ts
 const MY_TRADES_LIMIT = 1000             // Binance maximum per call
-const FIAT_HISTORY_LOOKBACK_DAYS = 730
-const FIAT_WINDOW_DAYS = 90              // sapi history endpoints default to 30 days; 90-day windows keep the call count low
+const HISTORY_LOOKBACK_DAYS = 730
+const FIAT_WINDOW_DAYS = 90              // fiat payments: no documented cap, 30-day default; 90 keeps the call count low
 const FIAT_ROWS = 500                    // Binance maximum per page
-const FIAT_MAX_PAGES = 10                // a window with more than 5,000 fiat orders is not a personal account
+const P2P_WINDOW_DAYS = 30               // c2c history: documented 30-day maximum interval
+const P2P_ROWS = 100                     // Binance maximum per page
+const MAX_PAGES = 10                     // a window with thousands of orders is not a personal account
 const RETRY_ATTEMPTS = 2                 // one retry on a transient Binance failure
 const RETRY_DELAY_MS = 300
-const CONCURRENCY = 6
+const CONCURRENCY = 8
 const MS_PER_DAY = 86_400_000
 const INVALID_SYMBOL_CODE = -1121
 
@@ -89,6 +97,7 @@ function toFiatOrder(raw: BinanceFiatPayment, side: 'BUY' | 'SELL'): FiatOrder {
   const source = Number.parseFloat(raw.sourceAmount)
   const obtain = Number.parseFloat(raw.obtainAmount)
   return {
+    source: 'fiat',
     side,
     fiatCurrency: raw.fiatCurrency,
     cryptoCurrency: raw.cryptoCurrency,
@@ -98,63 +107,119 @@ function toFiatOrder(raw: BinanceFiatPayment, side: 'BUY' | 'SELL'): FiatOrder {
   }
 }
 
-async function fetchFiatWindow(transactionType: '0' | '1', beginTime: number, endTime: number): Promise<BinanceFiatPayment[]> {
-  const rows: BinanceFiatPayment[] = []
-  for (let page = 1; page <= FIAT_MAX_PAGES; page += 1) {
-    const res = await withRetry(() => binanceFetch<BinanceFiatPaymentsResponse>('/sapi/v1/fiat/payments', {
-      transactionType,
-      beginTime,
-      endTime,
-      page,
-      rows: FIAT_ROWS,
-    }))
-    const data = res.data ?? []
-    rows.push(...data)
-    if (data.length < FIAT_ROWS || rows.length >= res.total) break
+// P2P: amount is the crypto quantity and totalPrice the fiat that changed hands.
+function toP2pOrder(raw: BinanceC2cOrder): FiatOrder {
+  return {
+    source: 'p2p',
+    side: raw.tradeType,
+    fiatCurrency: raw.fiat,
+    cryptoCurrency: raw.asset,
+    fiatAmount: Number.parseFloat(raw.totalPrice),
+    cryptoAmount: Number.parseFloat(raw.amount),
+    time: raw.createTime,
+  }
+}
+
+interface Window {
+  side: 'BUY' | 'SELL'
+  begin: number
+  end: number
+}
+
+function buildWindows(now: number, windowDays: number): Window[] {
+  const windows: Window[] = []
+  const start = now - HISTORY_LOOKBACK_DAYS * MS_PER_DAY
+  for (let end = now; end > start; end -= windowDays * MS_PER_DAY) {
+    const begin = Math.max(start, end - windowDays * MS_PER_DAY)
+    windows.push({ side: 'BUY', begin, end })
+    windows.push({ side: 'SELL', begin, end })
+  }
+  return windows
+}
+
+/** Page through one history window. `fetchPage` returns the rows and the total for that window. */
+async function fetchPaged<T>(
+  rowsPerPage: number,
+  fetchPage: (page: number) => Promise<{ data: T[]; total: number }>,
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const res = await withRetry(() => fetchPage(page))
+    rows.push(...res.data)
+    if (res.data.length < rowsPerPage || rows.length >= res.total) break
   }
   return rows
 }
 
-interface FiatHistory {
+async function fetchFiatWindow(w: Window): Promise<FiatOrder[]> {
+  const raw = await fetchPaged<BinanceFiatPayment>(FIAT_ROWS, async (page) => {
+    const res = await binanceFetch<BinanceFiatPaymentsResponse>('/sapi/v1/fiat/payments', {
+      transactionType: w.side === 'BUY' ? '0' : '1',
+      beginTime: w.begin,
+      endTime: w.end,
+      page,
+      rows: FIAT_ROWS,
+    })
+    return { data: res.data ?? [], total: res.total }
+  })
+  return raw.filter((r) => r.status === 'Completed').map((r) => toFiatOrder(r, w.side))
+}
+
+async function fetchP2pWindow(w: Window): Promise<FiatOrder[]> {
+  const raw = await fetchPaged<BinanceC2cOrder>(P2P_ROWS, async (page) => {
+    const res = await binanceFetch<BinanceC2cHistoryResponse>('/sapi/v1/c2c/orderMatch/listUserOrderHistory', {
+      tradeType: w.side,
+      startTimestamp: w.begin,
+      endTimestamp: w.end,
+      page,
+      rows: P2P_ROWS,
+    })
+    return { data: res.data ?? [], total: res.total }
+  })
+  return raw.filter((r) => r.orderStatus === 'COMPLETED').map(toP2pOrder)
+}
+
+interface HistorySource {
   orders: FiatOrder[]
   warnings: string[]
 }
 
 /**
- * Fiat Buy/Sell Crypto orders over the lookback. A failure here degrades to
- * spot-only P&L with a warning instead of failing the whole request, because
- * the fiat endpoint is the flakiest call in this handler and the least essential.
+ * One fiat-side history source over the whole lookback. A failure degrades to a
+ * warning instead of failing the request: these endpoints are the flakiest calls
+ * here and spot-only P&L is still useful.
  */
-async function fetchFiatOrders(now: number): Promise<FiatHistory> {
-  const windows: Array<{ type: '0' | '1'; begin: number; end: number }> = []
-  const start = now - FIAT_HISTORY_LOOKBACK_DAYS * MS_PER_DAY
-  for (let end = now; end > start; end -= FIAT_WINDOW_DAYS * MS_PER_DAY) {
-    const begin = Math.max(start, end - FIAT_WINDOW_DAYS * MS_PER_DAY)
-    windows.push({ type: '0', begin, end })
-    windows.push({ type: '1', begin, end })
-  }
-
+async function fetchHistorySource(
+  label: string,
+  windows: Window[],
+  fetchWindow: (w: Window) => Promise<FiatOrder[]>,
+): Promise<HistorySource> {
   try {
-    const pages = await mapWithConcurrency(windows, CONCURRENCY, (w) => fetchFiatWindow(w.type, w.begin, w.end))
-    const orders: FiatOrder[] = []
+    const pages = await mapWithConcurrency(windows, CONCURRENCY, fetchWindow)
+    // Adjacent windows share their boundary instant, so an order created exactly
+    // on it can appear twice; key by every field that identifies the trade.
     const seen = new Set<string>()
-    windows.forEach((w, i) => {
-      for (const raw of pages[i] ?? []) {
-        const key = `${w.type}:${raw.orderNo}`
-        if (raw.status !== 'Completed' || seen.has(key)) continue
-        seen.add(key)
-        orders.push(toFiatOrder(raw, w.type === '0' ? 'BUY' : 'SELL'))
-      }
-    })
+    const orders: FiatOrder[] = []
+    for (const o of pages.flat()) {
+      const key = `${o.side}:${o.time}:${o.cryptoCurrency}:${o.cryptoAmount}:${o.fiatAmount}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      orders.push(o)
+    }
     return { orders, warnings: [] }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error'
-    console.error('[crypto-pnl] fiat history unavailable:', msg)
-    return {
-      orders: [],
-      warnings: [`Fiat purchase history unavailable (${msg}); cost basis uses spot fills only.`],
-    }
+    console.error(`[crypto-pnl] ${label} history unavailable:`, msg)
+    return { orders: [], warnings: [`${label} history unavailable (${msg}); its purchases are missing from the cost basis.`] }
   }
+}
+
+async function fetchFiatOrders(now: number): Promise<HistorySource> {
+  const [fiat, p2p] = await Promise.all([
+    fetchHistorySource('Fiat Buy Crypto', buildWindows(now, FIAT_WINDOW_DAYS), fetchFiatWindow),
+    fetchHistorySource('P2P', buildWindows(now, P2P_WINDOW_DAYS), fetchP2pWindow),
+  ])
+  return { orders: [...fiat.orders, ...p2p.orders], warnings: [...fiat.warnings, ...p2p.warnings] }
 }
 
 export const handler: Handler = async (event) => {

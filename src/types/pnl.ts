@@ -12,8 +12,11 @@ export interface SpotFill {
   time: number            // ms epoch
 }
 
-/** One completed Binance fiat "Buy Crypto" / "Sell Crypto" order. */
+export type FiatOrderSource = 'fiat' | 'p2p'
+
+/** One completed fiat-to-crypto trade: a Binance "Buy/Sell Crypto" order or a P2P trade with another user. */
 export interface FiatOrder {
+  source: FiatOrderSource
   side: FillSide          // BUY: fiat -> crypto, SELL: crypto -> fiat
   fiatCurrency: string    // e.g. "PHP"
   fiatAmount: number      // fiat paid (BUY) or received (SELL), fees included

@@ -63,7 +63,7 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `ticker.ts` | `GET /api/ticker` | None | 24h price stats (WS fallback) |
 | `health.ts` | `GET /api/health` | None | Health check |
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
-| `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills + fiat orders |
+| `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades |
 | `utils/binance-holdings.ts` | — | — | Wallet totals, price map, USDT pricing shared by balance and crypto-pnl |
 | `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
 | `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
