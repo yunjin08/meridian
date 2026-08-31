@@ -3,6 +3,9 @@ import { Header } from '@/components/layout/Header'
 import { Dashboard } from '@/components/layout/Dashboard'
 import { ChatWidget } from '@/components/chat/ChatWidget'
 import { LandingPage } from '@/components/landing/LandingPage'
+import { PasskeyPanel } from '@/components/auth/PasskeyPanel'
+import { PasskeyPrompt } from '@/components/auth/PasskeyPrompt'
+import { FingerprintIcon } from '@/components/ui/FingerprintIcon'
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket'
 import { useCandles } from '@/hooks/useCandles'
 import { useBalance } from '@/hooks/useBalance'
@@ -28,24 +31,38 @@ function AppInner() {
   useTaxData()
   useTaxDeadlineNotifier()
 
+  const [isPasskeyPanelOpen, setIsPasskeyPanelOpen] = useState(false)
+
   return (
     <div className="min-h-screen bg-terminal-bg text-text-primary flex flex-col">
-      <button
-        type="button"
-        className="fixed top-4 right-4 z-40 px-3 py-1.5 border border-panel-border rounded text-xs font-mono text-text-muted hover:text-text-primary hover:border-text-muted"
-        onClick={() => {
-          void fetch('/api/logout', { method: 'POST', credentials: 'include' }).finally(() => {
-            globalThis.location.reload()
-          })
-        }}
-      >
-        Logout
-      </button>
+      <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-panel-border rounded text-xs font-mono text-text-muted hover:text-text-primary hover:border-text-muted"
+          onClick={() => setIsPasskeyPanelOpen(true)}
+        >
+          <FingerprintIcon className="h-3.5 w-3.5" />
+          Passkeys
+        </button>
+        <button
+          type="button"
+          className="px-3 py-1.5 border border-panel-border rounded text-xs font-mono text-text-muted hover:text-text-primary hover:border-text-muted"
+          onClick={() => {
+            void fetch('/api/logout', { method: 'POST', credentials: 'include' }).finally(() => {
+              globalThis.location.reload()
+            })
+          }}
+        >
+          Logout
+        </button>
+      </div>
       <Header />
+      <PasskeyPrompt />
       <main className="flex-1 flex flex-col">
         <Dashboard />
       </main>
       <ChatWidget />
+      {isPasskeyPanelOpen && <PasskeyPanel onClose={() => setIsPasskeyPanelOpen(false)} />}
     </div>
   )
 }
