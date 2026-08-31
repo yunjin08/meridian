@@ -65,6 +65,11 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
 | `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades, plus the daily spent-vs-value curve |
 | `utils/binance-holdings.ts` | — | — | Wallet totals, price map, USDT pricing shared by balance and crypto-pnl |
+| `webauthn-register.ts` | `GET/POST /api/webauthn-register` | Session | Passkey enrolment options and verification |
+| `webauthn-login.ts` | `GET/POST /api/webauthn-login` | None | Passkey sign-in, mints the same session cookie as `login.ts` |
+| `webauthn-credentials.ts` | `GET/DELETE /api/webauthn-credentials` | Session | List and revoke registered devices |
+| `utils/webauthn-policy.ts` | — | — | RP config, device labels, signature counter rule |
+| `utils/webauthn-repo.ts` | — | — | Credential CRUD against Supabase |
 | `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
 | `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
 | `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
@@ -86,6 +91,7 @@ src/
 │   ├── account.ts           AccountBalance
 │   ├── alert.ts             Alert, AlertCondition discriminated union
 │   ├── tax.ts               TaxIncomeEntry, TaxFiling, TaxPeriod, TaxPeriodSummary
+│   ├── webauthn.ts          PasskeyCredential (crosses the /api/webauthn-* boundary)
 │   └── websocket.ts         WsTickerMessage, WsKlineMessage, WsConnectionStatus
 ├── store/                   Zustand stores (one per domain)
 │   ├── priceStore.ts        Live price, 24h stats, WS status, lastTickAt
@@ -108,7 +114,8 @@ src/
 │   ├── alerts/              AlertList, AlertItem
 │   ├── overview/            OverviewSection, PortfolioHero, AssetClassCard, PnlSection, PortfolioHistoryChart, AllocationBar, TopHoldingsList
 │   ├── tax/                 TaxSection, TaxPeriodCard, TaxDeadlineBanner, TaxEntryForm, TaxEntryList, EnableNotificationsButton
-│   └── ui/                  SkeletonBlock (shared loading placeholder)
+│   ├── auth/                PasskeyPrompt (post-login offer), PasskeyPanel (manage devices)
+│   └── ui/                  SkeletonBlock, FingerprintIcon
 └── lib/                     Pure utilities (no React)
     ├── formatters.ts         Price/percent/BTC formatting, lastValue() helper
     ├── notifications.ts      Browser Notification API wrapper + permission flow
@@ -117,6 +124,8 @@ src/
     ├── tax.ts                 Tax period math: weekend rollover, cumulative credit, status, next actionable
     ├── taxNotifications.ts    Decides whether a deadline notification fires today
     ├── taxApi.ts              Fetch wrapper for /api/tax-entries and /api/tax-filings
+    ├── webauthnApi.ts         Passkey ceremonies and /api/webauthn-* fetch wrapper
+    ├── passkeyPreference.ts   Per-browser passkey hints and the auto-prompt rule
     ├── portfolioSummary.ts    Aggregates crypto/stock/REIT holdings into PortfolioSummary
     ├── cryptoPnl.ts           Alias-free crypto cost basis and net P&L math (bundled into crypto-pnl.ts)
     ├── portfolioHistory.ts    Alias-free daily spent-vs-value curve and above/below-water bands
@@ -171,7 +180,12 @@ TRADING212_API_SECRET=...
 TRADING212_ENV=live   # or demo
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...   # service role key, server-side only, never VITE_
+WEBAUTHN_RP_ID=...              # bare domain, e.g. meridian.netlify.app (localhost in dev)
+WEBAUTHN_ORIGIN=...             # full origin, e.g. https://meridian.netlify.app
 ```
+
+A passkey is bound to one origin, so `localhost` and production hold separate
+registrations. Registering on the dev server does not sign you in on production.
 
 **Critical:** never prefix these with `VITE_`. That would inline them into the browser bundle.
 
@@ -233,7 +247,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 3. **One combined candles endpoint.** Indicators are calculated server-side in the same `candles.ts` function call. There is no separate `/api/indicators` endpoint — that would require a second Binance kline fetch.
 
-4. **Tax records live in Supabase; everything else stays stateless.** Only `tax_income_entries` and `tax_filings` are persisted server-side, and only through `netlify/functions/tax-*.ts` using the service role key. Alerts and the stock watchlist remain in localStorage. Adding another table is an architecture decision, not a convenience.
+4. **Tax records and passkey credentials live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings` and `webauthn_credentials` are persisted server-side, and only through `netlify/functions/tax-*.ts` and `webauthn-*.ts` using the service role key. Alerts and the stock watchlist remain in localStorage. Adding another table is an architecture decision, not a convenience.
 
 5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
@@ -247,6 +261,10 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 10. **Function code must never import a `src/` module that uses the `@/` alias, directly or transitively.** Netlify bundles each function with esbuild and no path mapping, so an `@/` import resolves locally but fails in the deployed bundle. Type-only imports from `src/types/*.ts` are fine (types are erased before bundling). `src/lib/isoDate.ts` is the alias-free helper module for logic that functions need to share with the frontend; put more of that kind of code there rather than reaching into files that import `@/`.
 
+11. **Owner sign-in is passphrase OR passkey, never both as factors.** A passkey login mints the same `dashboard_session` cookie `login.ts` mints, so nothing downstream of auth knows which was used. The passphrase is the recovery path and must never be removed. The `meridian.passkey.*` localStorage keys are UX hints only: the server decides every outcome regardless of what they say.
+
+12. **The WebAuthn challenge is a signed cookie, not a table.** `createChallengeCookie` / `readChallengeCookie` in `utils/auth.ts` carry it across the two-step ceremony with a 2 minute TTL. Do not add a challenges table.
+
 ---
 
 ## Known Limitations (Phase 1)
@@ -256,4 +274,6 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
 - Deadline notifications fire only while the tab is open; the once-per-threshold markers are per browser.
+- Passkeys are per origin, so a credential registered on localhost does not work in production.
+- Passkey sign-in has no rate limit of its own; it is guarded by signature verification, not by attempt counting.
 - PH public holidays are not modelled in deadline rollover.
