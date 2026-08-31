@@ -37,6 +37,24 @@ export type TaxFilingInsert = {
   amount_paid_php: number
 }
 
+export type WebAuthnCredentialRow = {
+  credential_id: string
+  public_key: string
+  counter: number | string   // bigint columns arrive as strings
+  transports: string[]
+  device_label: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export type WebAuthnCredentialInsert = {
+  credential_id: string
+  public_key: string
+  counter: number
+  transports: string[]
+  device_label: string
+}
+
 // Hand-written schema type so queries are typed without generating types.
 export interface Database {
   public: {
@@ -51,6 +69,12 @@ export interface Database {
         Row: TaxFilingRow
         Insert: TaxFilingInsert
         Update: Partial<TaxFilingInsert>
+        Relationships: []
+      }
+      webauthn_credentials: {
+        Row: WebAuthnCredentialRow
+        Insert: WebAuthnCredentialInsert
+        Update: Partial<WebAuthnCredentialInsert> & { last_used_at?: string }
         Relationships: []
       }
     }
