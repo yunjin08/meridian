@@ -33,8 +33,22 @@ export function ok(body: unknown, extraHeaders?: Record<string, string>): Handle
   return { statusCode: STATUS.OK, headers: withHeaders(extraHeaders), body: JSON.stringify(body) }
 }
 
-export function created(body: unknown): HandlerResponse {
-  return { statusCode: STATUS.CREATED, headers: corsHeaders(), body: JSON.stringify(body) }
+/**
+ * Set-Cookie is the one header a response may legitimately repeat, and a plain
+ * header record cannot hold two of them. Netlify merges multiValueHeaders with
+ * headers, so the CORS and content-type headers still apply.
+ */
+export function okWithCookies(body: unknown, cookies: string[]): HandlerResponse {
+  return {
+    statusCode: STATUS.OK,
+    headers: corsHeaders(),
+    multiValueHeaders: { 'Set-Cookie': cookies },
+    body: JSON.stringify(body),
+  }
+}
+
+export function created(body: unknown, extraHeaders?: Record<string, string>): HandlerResponse {
+  return { statusCode: STATUS.CREATED, headers: withHeaders(extraHeaders), body: JSON.stringify(body) }
 }
 
 export function noContent(): HandlerResponse {
