@@ -77,14 +77,24 @@ JSON errors, no `@/` alias imports in function code.
 2. `npm run dev`, log in, open the **Crypto** tab, click **Analyze**.
 3. In production it works automatically; the gateway injects credentials at runtime.
 4. If the chat or the panel answers "not configured" in production, read
-   `GET /api/health`. Its `ai` block reports presence only: `gateway: false`
-   means Netlify is not injecting anything into this project's compute, which
-   in practice means the team's plan does not include the AI Gateway even when
-   "AI Features: Enabled" shows in team settings (the API exposes these as two
-   different flags, `ai_usage_enabled_setting` and `ai_gateway_available_on_plan`).
-   `gateway: true, anthropicKey: false` means a project-level `ANTHROPIC_API_KEY`
-   exists and blocks injection; delete it. Setting `ANTHROPIC_API_KEY` by hand is
-   the fallback that bypasses the gateway and bills your own Anthropic account.
+   `GET /api/health`. Its `ai` block reports presence only. `gateway: false`
+   means Netlify is not injecting anything into this project's compute (team
+   AI features disabled, or a plan without the gateway). `gateway: true,
+   anthropicKey: false` means a project-level `ANTHROPIC_API_KEY` exists and
+   blocks injection; delete it. Setting `ANTHROPIC_API_KEY` by hand is the
+   fallback that bypasses the gateway and bills your own Anthropic account.
+
+### Why the AI functions are Functions 2.0
+
+Measured on 2026-09-10 on the production site: a Functions 2.0 module
+(`export default async (req: Request)`) receives `NETLIFY_AI_GATEWAY_KEY`,
+`ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`; a classic `export const handler`
+function in the same deploy receives none of them. So `chat.ts`, `analyze.ts`
+and `health.ts` are v2 modules. They keep their event-based bodies and cross
+the boundary through `utils/v2.ts` (`asV2`, `toHandlerEvent`, `toResponse`) so
+`requireAuth` and the `utils/http.ts` helpers stay untouched. Any new function
+that calls a model must do the same; a classic handler will always see the key
+as missing.
 
 Quick endpoint check (unauthenticated should be 401; authed but unlinked returns
 the "not configured" 500, which confirms the handler runs):

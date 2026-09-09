@@ -20,7 +20,7 @@ vi.mock('../utils/chat-tools.ts', async (importOriginal) => {
 })
 
 import { executeReadTool } from '../utils/chat-tools.ts'
-import { handler } from '../chat.ts'
+import { handleEvent as handler } from '../chat.ts'
 
 const context = {
   activeSymbol: 'BTCUSDT',
@@ -67,7 +67,7 @@ describe('chat handler tool loop', () => {
       .mockResolvedValueOnce(toolUse([{ id: 't1', name: 'get_macro_snapshot', input: {} }]))
       .mockResolvedValueOnce(endTurn('The Fed funds rate is 4.33%.'))
 
-    const res = await handler(ask('what is the fed funds rate'), {} as never)
+    const res = await handler(ask('what is the fed funds rate'))
     const body = JSON.parse(res?.body ?? '{}') as ChatApiResponse
 
     expect(res?.statusCode).toBe(200)
@@ -89,7 +89,7 @@ describe('chat handler tool loop', () => {
       )
       .mockResolvedValueOnce(endTurn('Alert created.'))
 
-    const res = await handler(ask('alert me under 70k'), {} as never)
+    const res = await handler(ask('alert me under 70k'))
     const body = JSON.parse(res?.body ?? '{}') as ChatApiResponse
 
     expect(body.appliedTools).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('chat handler tool loop', () => {
       )
       .mockResolvedValueOnce(endTurn('Set an alert at the 4h lower band, $4,000.'))
 
-    const res = await handler(ask('alert me if ETH drops under the 4h lower band'), {} as never)
+    const res = await handler(ask('alert me if ETH drops under the 4h lower band'))
     const body = JSON.parse(res?.body ?? '{}') as ChatApiResponse
 
     expect(body.lookups.map((l) => l.name)).toEqual(['get_candles'])
@@ -125,7 +125,7 @@ describe('chat handler tool loop', () => {
     })
     createMock.mockResolvedValue(toolUse([{ id: 't', name: 'get_crypto_market', input: {} }]))
 
-    const res = await handler(ask('loop forever'), {} as never)
+    const res = await handler(ask('loop forever'))
     const body = JSON.parse(res?.body ?? '{}') as ChatApiResponse
 
     expect(createMock).toHaveBeenCalledTimes(5)

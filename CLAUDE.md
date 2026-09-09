@@ -71,6 +71,7 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `utils/chat-tools.ts` | — | — | Chat tool schemas, read-tool executor, compact result formatting |
 | `utils/market-data.ts` | — | — | FRED, CoinGecko, Fear & Greed, Binance Futures fetchers with a module-level TTL cache |
 | `utils/klines.ts` | — | — | Kline fetch + parse + indicators shared by candles.ts and the get_candles tool |
+| `utils/v2.ts` | — | — | Request/HandlerEvent adapters so AI functions can run as Functions 2.0 |
 | `webauthn-register.ts` | `GET/POST /api/webauthn-register` | Session | Passkey enrolment options and verification |
 | `webauthn-login.ts` | `GET/POST /api/webauthn-login` | None | Passkey sign-in, mints the same session cookie as `login.ts` |
 | `webauthn-credentials.ts` | `GET/DELETE /api/webauthn-credentials` | Session | List and revoke registered devices |
@@ -276,7 +277,9 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 11. **Owner sign-in is passphrase OR passkey, never both as factors.** A passkey login mints the same `dashboard_session` cookie `login.ts` mints, so nothing downstream of auth knows which was used. The passphrase is the recovery path and must never be removed. The `meridian.passkey.*` localStorage keys are UX hints only: the server decides every outcome regardless of what they say.
 
-12. **The WebAuthn challenge is a signed cookie, not a table.** `createChallengeCookie` / `readChallengeCookie` in `utils/auth.ts` carry it across the two-step ceremony with a 2 minute TTL. Do not add a challenges table.
+12. **Functions that call a model must be Functions 2.0 modules.** Netlify's AI Gateway injects `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` only into the v2 runtime (`export default async (req: Request)` plus `export const config = { path }`), never into a classic `export const handler`. Wrap an event-based body with `asV2` from `utils/v2.ts` so auth and the HTTP helpers still apply. See `docs/ai-analysis.md`.
+
+13. **The WebAuthn challenge is a signed cookie, not a table.** `createChallengeCookie` / `readChallengeCookie` in `utils/auth.ts` carry it across the two-step ceremony with a 2 minute TTL. Do not add a challenges table.
 
 ---
 

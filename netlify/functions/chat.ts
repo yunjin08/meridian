@@ -1,7 +1,8 @@
-import type { Handler } from '@netlify/functions'
+import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
+import { asV2 } from './utils/v2.ts'
 import { CHAT_TOOLS, executeReadTool, isReadTool } from './utils/chat-tools.ts'
 import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatToolName } from '../../src/types/chat.ts'
 
@@ -138,7 +139,7 @@ PRICE (${ctx.activeSymbol}):
 // Handler
 // ---------------------------------------------------------------------------
 
-export const handler: Handler = async (event) => {
+export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
   if (event.httpMethod === 'OPTIONS') return preflight()
   const unauthorizedResponse = requireAuth(event)
   if (unauthorizedResponse) return unauthorizedResponse
@@ -240,3 +241,9 @@ export const handler: Handler = async (event) => {
     return badGateway('Failed to reach AI service')
   }
 }
+
+// Functions 2.0 entry point: the AI Gateway only injects ANTHROPIC_API_KEY and
+// ANTHROPIC_BASE_URL into this runtime, never into a classic handler export.
+export default asV2(handleEvent)
+
+export const config: Config = { path: '/api/chat' }
