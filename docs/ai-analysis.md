@@ -84,6 +84,17 @@ JSON errors, no `@/` alias imports in function code.
    blocks injection; delete it. Setting `ANTHROPIC_API_KEY` by hand is the
    fallback that bypasses the gateway and bills your own Anthropic account.
 
+### Function timeout
+
+A three-round chat turn (lookup, write, final reply) takes 5 to 8 seconds on
+Haiku, and a single analysis call 3 to 5 seconds. The site was created with a
+5 second function timeout, which killed every three-round turn with Netlify's
+generic `{"errorType":"Error","errorMessage":"An unknown error has occurred"}`
+502 and a log line reading exactly `Duration: 5000 ms`. The timeout is a site
+attribute (raised to 60 seconds on 2026-09-10) and applies from the next deploy.
+Streaming does not escape it; the stream is cut at the same point. If that
+error shape ever returns, check the timeout before suspecting the code.
+
 ### Why the AI functions are Functions 2.0
 
 Measured on 2026-09-10 on the production site: a Functions 2.0 module
