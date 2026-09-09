@@ -87,9 +87,62 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8888/api/analy
 
 ---
 
+## Chat lookups (market-data tools)
+
+The chat assistant (`chat.ts`) was context-stuffed: the browser snapshots the
+stores into the system prompt and the model could only talk about what was on
+screen. It now has three **read tools** alongside the five write tools, so it
+can answer questions about rates, sentiment, or any symbol and timeframe by
+fetching live data inside the function. Design: `docs/superpowers/specs/2026-09-10-chat-market-data-tools-design.md`.
+
+```
+ChatWidget ── POST /api/chat ──► chat.ts loop (max 5 rounds)
+                                   │ tool_use: read tool ──► utils/chat-tools.ts ──► utils/market-data.ts / utils/klines.ts
+                                   │                          real result text goes back to the model
+                                   │ tool_use: write tool ──► recorded in appliedTools, browser applies it
+                                   ▼
+                                 { reply, appliedTools, lookups }
+                                   │
+                                 ChatMessage shows "Looked up: …" under the bubble
+```
+
+| Tool | Source | Cache | Notes |
+|------|--------|-------|-------|
+| `get_macro_snapshot` | FRED: FEDFUNDS, CPIAUCSL (derived YoY), UNRATE, DGS2, DGS10, T10Y2Y, DTWEXBGS | 1 h | Needs `FRED_API_KEY`. Without it the tool tells the model macro is not configured. |
+| `get_crypto_market` | CoinGecko `/global`, alternative.me Fear & Greed, Binance Futures funding + open interest | 1 min | Keyless. `COINGECKO_API_KEY` (demo) is optional. Each provider fails independently. |
+| `get_candles` | Binance klines via `utils/klines.ts`, same code as `/api/candles` | none | Returns a compact summary (window high/low, latest RSI/MACD/BB, last 10 closes), never raw candles. |
+
+`GET /api/macro` exposes the same macro and crypto snapshot for the UI; nothing
+consumes it yet (the analysis panel regime line is the intended consumer).
+
+Trust decision: the model reads third-party data while holding write tools.
+Accepted because the sources return numbers and enum labels, tool results are
+formatted from parsed fields (never the raw body), and every write is reversible
+and visible in the UI. Any free-text source (news, social) must not join this
+loop without a confirmation gate on writes.
+
+### Manual evals
+
+Run after any prompt or model change. Not in CI: each run spends tokens and the
+feature has one user. Expected behaviour in brackets.
+
+1. "what is the fed funds rate" [calls `get_macro_snapshot`, quotes value and date]
+2. "is the market fearful or greedy right now" [calls `get_crypto_market`, quotes index and label]
+3. "how does ETH look on the 4h" [calls `get_candles` ETHUSDT 4h, describes RSI/MACD/BB]
+4. "what is CPI doing and does BTC funding look stretched" [two lookups in one turn, both cited]
+5. "alert me if BTC drops under the 4h Bollinger lower band" [lookup then `add_alert` with the fetched level]
+6. "what is the price of gold" [declines: no tool covers it, no made-up number]
+7. With `FRED_API_KEY` unset: prompt 1 [says macro data is not configured, does not guess]
+
+---
+
 ## Roadmap / next ideas
 
 Ordered roughly by value-to-effort. None are started.
+
+- **Macro regime line in the analysis panel.** `/api/macro` exists; feed the
+  snapshot into `analyze.ts` so the read can say "rates unchanged, dollar firm,
+  greed at 66" alongside the technicals.
 
 - **Stream the response.** Switch `/api/analyze` to SSE and render the summary as
   it arrives. Note: forced tool output does not stream token-by-token as prose,

@@ -65,6 +65,12 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
 | `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades, plus the daily spent-vs-value curve |
 | `utils/binance-holdings.ts` | — | — | Wallet totals, price map, USDT pricing shared by balance and crypto-pnl |
+| `chat.ts` | `POST /api/chat` | Session | Assistant loop: five write tools applied by the browser, three read tools executed server-side |
+| `analyze.ts` | `POST /api/analyze` | Session | Forced-tool structured read of the active chart |
+| `macro.ts` | `GET /api/macro` | Session | FRED macro snapshot plus crypto market stats, same data the chat read tools see |
+| `utils/chat-tools.ts` | — | — | Chat tool schemas, read-tool executor, compact result formatting |
+| `utils/market-data.ts` | — | — | FRED, CoinGecko, Fear & Greed, Binance Futures fetchers with a module-level TTL cache |
+| `utils/klines.ts` | — | — | Kline fetch + parse + indicators shared by candles.ts and the get_candles tool |
 | `webauthn-register.ts` | `GET/POST /api/webauthn-register` | Session | Passkey enrolment options and verification |
 | `webauthn-login.ts` | `GET/POST /api/webauthn-login` | None | Passkey sign-in, mints the same session cookie as `login.ts` |
 | `webauthn-credentials.ts` | `GET/DELETE /api/webauthn-credentials` | Session | List and revoke registered devices |
@@ -92,6 +98,8 @@ src/
 │   ├── alert.ts             Alert, AlertCondition discriminated union
 │   ├── tax.ts               TaxIncomeEntry, TaxFiling, TaxPeriod, TaxPeriodSummary
 │   ├── webauthn.ts          PasskeyCredential (crosses the /api/webauthn-* boundary)
+│   ├── chat.ts              DashboardContext, write/read tool names, ChatLookup, ChatApiResponse
+│   ├── market.ts            MacroSnapshot, CryptoMarketSnapshot (crosses /api/macro and the chat tools)
 │   └── websocket.ts         WsTickerMessage, WsKlineMessage, WsConnectionStatus
 ├── store/                   Zustand stores (one per domain)
 │   ├── priceStore.ts        Live price, 24h stats, WS status, lastTickAt
@@ -182,7 +190,12 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...   # service role key, server-side only, never VITE_
 WEBAUTHN_RP_ID=...              # bare domain, e.g. meridian.netlify.app (localhost in dev)
 WEBAUTHN_ORIGIN=...             # full origin, e.g. https://meridian.netlify.app
+FRED_API_KEY=...                # free; without it the chat says macro data is not configured
+COINGECKO_API_KEY=...           # optional demo key, raises the keyless 30 req/min limit
 ```
+
+`ANTHROPIC_API_KEY` is not set by hand: Netlify's AI Gateway injects it (see
+`docs/ai-analysis.md`).
 
 A passkey is bound to one origin, so `localhost` and production hold separate
 registrations. Registering on the dev server does not sign you in on production.
@@ -277,3 +290,5 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 - Passkeys are per origin, so a credential registered on localhost does not work in production.
 - Passkey sign-in has no rate limit of its own; it is guarded by signature verification, not by attempt counting.
 - PH public holidays are not modelled in deadline rollover.
+- Chat lookups cover US macro (FRED), crypto market stats and Binance spot candles only. No news, no equities indices, no commodities; the prompt tells the model to say so.
+- The market-data cache is per warm function instance, so a cold start refetches. Fine at one user; not a shared cache.
