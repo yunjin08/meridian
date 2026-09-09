@@ -212,6 +212,7 @@ export function useChat() {
           role: 'assistant',
           content: data.reply,
           timestamp: Date.now(),
+          ...(data.lookups.length > 0 ? { lookups: data.lookups } : {}),
         }
 
         setMessages((prev) => [...prev, assistantMessage])

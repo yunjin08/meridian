@@ -5,6 +5,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: number
+  /** External data the assistant consulted before answering. */
+  lookups?: ChatLookup[]
 }
 
 export interface DashboardContext {
@@ -56,15 +58,25 @@ export interface ChatRequest {
   context: DashboardContext
 }
 
-// Tool names the chatbot can invoke
+// Write tools: the function records them and the browser applies them to its stores.
 export type ChatToolName = 'add_alert' | 'remove_alert' | 'toggle_alert' | 'add_symbol' | 'remove_symbol'
+
+// Read tools: executed inside the function, their text goes back to the model.
+export type ChatReadToolName = 'get_macro_snapshot' | 'get_crypto_market' | 'get_candles'
 
 export interface AppliedTool {
   name: ChatToolName
   input: unknown
 }
 
+export interface ChatLookup {
+  name: ChatReadToolName
+  /** Short human label, e.g. "BTCUSDT 4h, 100 candles". */
+  summary: string
+}
+
 export interface ChatApiResponse {
   reply: string
   appliedTools: AppliedTool[]
+  lookups: ChatLookup[]
 }

@@ -2,111 +2,13 @@ import type { Handler } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
 import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
-import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatToolName } from '../../src/types/chat.ts'
+import { CHAT_TOOLS, executeReadTool, isReadTool } from './utils/chat-tools.ts'
+import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatToolName } from '../../src/types/chat.ts'
 
-// ---------------------------------------------------------------------------
-// Tool definitions — Claude can call these to manage alerts and portfolio
-// ---------------------------------------------------------------------------
-
-const TOOLS: Anthropic.Tool[] = [
-  {
-    name: 'add_alert',
-    description: `Create a new alert for any asset in the dashboard (crypto or stock).
-Alerts fire browser notifications when the condition is met.
-Use the exact symbol from the dashboard — e.g. BTCUSDT for Bitcoin, ETHUSDT for Ethereum, AAPL for Apple stock.
-For price conditions, use USD (stocks) or USDT (crypto).`,
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        label: {
-          type: 'string',
-          description: 'Short human-readable name, e.g. "BTC dip alert" or "AAPL above 200"',
-        },
-        symbol: {
-          type: 'string',
-          description: 'Asset symbol, e.g. BTCUSDT, ETHUSDT, AAPL, O',
-        },
-        condition: {
-          type: 'object' as const,
-          description: 'Alert trigger condition',
-          properties: {
-            type: {
-              type: 'string',
-              enum: [
-                'price_above',
-                'price_below',
-                'price_crosses',
-                'rsi_above',
-                'rsi_below',
-                'macd_crossover',
-                'macd_crossunder',
-              ],
-            },
-            threshold: {
-              type: 'number',
-              description: 'Required for price_* and rsi_* conditions. For rsi: 0–100.',
-            },
-          },
-          required: ['type'],
-        },
-        autoReset: {
-          type: 'boolean',
-          description: 'For price_crosses only: re-arm after 5-min cooldown. Defaults to false.',
-        },
-      },
-      required: ['label', 'symbol', 'condition'],
-    },
-  },
-  {
-    name: 'remove_alert',
-    description: 'Permanently delete an alert by its ID (shown in the alerts list in the dashboard context).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id: { type: 'string', description: 'UUID of the alert to delete' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'toggle_alert',
-    description: 'Pause an active alert or resume a paused alert by its ID.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id: { type: 'string', description: 'UUID of the alert to toggle' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'add_symbol',
-    description: 'Add a stock or REIT ticker to the portfolio watchlist so it appears in the Stocks/REITs tab.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        ticker: { type: 'string', description: 'Stock ticker, e.g. AAPL, MSFT, O' },
-        assetClass: {
-          type: 'string',
-          enum: ['stock', 'reit'],
-          description: 'Whether this is a regular stock or a REIT',
-        },
-      },
-      required: ['ticker', 'assetClass'],
-    },
-  },
-  {
-    name: 'remove_symbol',
-    description: 'Remove a stock or REIT ticker from the portfolio watchlist.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        ticker: { type: 'string', description: 'Stock ticker to remove, e.g. AAPL' },
-      },
-      required: ['ticker'],
-    },
-  },
-]
+const MODEL = 'claude-haiku-4-5-20251001'
+// A real question can need a lookup and then a write (read the 4h Bollinger
+// band, then set an alert on it), so the loop allows one more round than before.
+const MAX_ITERATIONS = 5
 
 // ---------------------------------------------------------------------------
 // System prompt builder
@@ -121,8 +23,15 @@ function buildSystemPrompt(ctx: DashboardContext): string {
 
   let prompt = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
 You can answer questions about live data AND manage alerts and the portfolio watchlist using tools.
-Be brief and factual — one or two sentences for informational answers.
+Be brief and factual: one or two sentences for informational answers.
 Do not give financial advice. When you create, remove, or toggle an alert, confirm what you did.
+
+You also have lookup tools. Use get_macro_snapshot for interest rates, inflation, the Fed, yields,
+the dollar or the macro backdrop; get_crypto_market for sentiment, fear and greed, dominance, funding
+or leverage; get_candles for any symbol or timeframe that is not the active chart. Never state such
+figures from memory: your training data is stale. If a lookup reports data as unavailable, say so
+plainly instead of guessing. Cite the observation date when you quote a macro figure. If a question
+needs data none of these tools provide (e.g. gold, equities indices, news), say you cannot look it up.
 
 === LIVE DASHBOARD DATA ===
 
@@ -264,22 +173,22 @@ export const handler: Handler = async (event) => {
   }))
 
   const appliedTools: AppliedTool[] = []
+  const lookups: ChatLookup[] = []
 
   try {
-    // Run up to 3 iterations to handle tool_use → tool_result → final text
-    for (let iteration = 0; iteration < 3; iteration++) {
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: MODEL,
         max_tokens: 1024,
         system: systemPrompt,
-        tools: TOOLS,
+        tools: CHAT_TOOLS,
         messages: msgs,
       })
 
       if (response.stop_reason === 'end_turn') {
         const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
         const reply = textBlock?.text ?? ''
-        const result: ChatApiResponse = { reply, appliedTools }
+        const result: ChatApiResponse = { reply, appliedTools, lookups }
         return ok(result)
       }
 
@@ -288,19 +197,21 @@ export const handler: Handler = async (event) => {
           (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
         )
 
-        const toolResults: Anthropic.ToolResultBlockParam[] = toolBlocks.map((block) => {
-          appliedTools.push({
-            name: block.name as ChatToolName,
-            input: block.input,
+        // Read tools run here and feed real data back; write tools are only
+        // recorded because the browser owns the stores they mutate. Independent
+        // lookups in one turn run in parallel.
+        const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+          toolBlocks.map(async (block) => {
+            if (isReadTool(block.name)) {
+              const outcome = await executeReadTool(block.name, block.input, context)
+              lookups.push(outcome.lookup)
+              return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content }
+            }
+            appliedTools.push({ name: block.name as ChatToolName, input: block.input })
+            return { type: 'tool_result' as const, tool_use_id: block.id, content: `Applied: ${block.name}` }
           })
-          return {
-            type: 'tool_result' as const,
-            tool_use_id: block.id,
-            content: `Applied: ${block.name}`,
-          }
-        })
+        )
 
-        // Append assistant turn + tool results and loop again
         msgs = [
           ...msgs,
           { role: 'assistant', content: response.content },
@@ -309,16 +220,16 @@ export const handler: Handler = async (event) => {
         continue
       }
 
-      // max_tokens or other stop — return whatever we have
+      // max_tokens or other stop: return whatever we have
       break
     }
 
-    // Exhausted iterations — return a confirmation if tools ran
+    // Exhausted iterations: return a confirmation if tools ran
     const fallbackReply =
       appliedTools.length > 0
-        ? `Done — ${appliedTools.map((t) => t.name).join(', ')} applied.`
+        ? `Done: ${appliedTools.map((t) => t.name).join(', ')} applied.`
         : 'Could not complete the request.'
-    return ok({ reply: fallbackReply, appliedTools } satisfies ChatApiResponse)
+    return ok({ reply: fallbackReply, appliedTools, lookups } satisfies ChatApiResponse)
   } catch (err) {
     console.error('[chat] Anthropic API error:', err)
     return badGateway('Failed to reach AI service')
