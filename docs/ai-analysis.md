@@ -76,6 +76,15 @@ JSON errors, no `@/` alias imports in function code.
    Without it the endpoint returns `500 {"error":"AI analysis is not configured"}`.
 2. `npm run dev`, log in, open the **Crypto** tab, click **Analyze**.
 3. In production it works automatically; the gateway injects credentials at runtime.
+4. If the chat or the panel answers "not configured" in production, read
+   `GET /api/health`. Its `ai` block reports presence only: `gateway: false`
+   means Netlify is not injecting anything into this project's compute, which
+   in practice means the team's plan does not include the AI Gateway even when
+   "AI Features: Enabled" shows in team settings (the API exposes these as two
+   different flags, `ai_usage_enabled_setting` and `ai_gateway_available_on_plan`).
+   `gateway: true, anthropicKey: false` means a project-level `ANTHROPIC_API_KEY`
+   exists and blocks injection; delete it. Setting `ANTHROPIC_API_KEY` by hand is
+   the fallback that bypasses the gateway and bills your own Anthropic account.
 
 Quick endpoint check (unauthenticated should be 401; authed but unlinked returns
 the "not configured" 500, which confirms the handler runs):
