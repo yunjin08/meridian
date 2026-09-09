@@ -46,7 +46,7 @@ For price conditions, use USD (stocks) or USDT (crypto).`,
             },
             threshold: {
               type: 'number',
-              description: 'Required for price_* and rsi_* conditions. For rsi: 0–100.',
+              description: 'Required for price_* and rsi_* conditions. For rsi: 0 to 100.',
             },
           },
           required: ['type'],
@@ -184,8 +184,13 @@ export function isReadTool(name: string): name is ChatReadToolName {
 const num = (v: number | null | undefined, digits = 2): string =>
   v == null || Number.isNaN(v) ? 'n/a' : v.toFixed(digits)
 
+// Sub-dollar pairs (PEPE, SHIB) need more precision or every level reads $0.00.
+const moneyDigits = (v: number): number => (Math.abs(v) >= 1 ? 2 : Math.abs(v) >= 0.01 ? 4 : 8)
+
 const money = (v: number | null | undefined): string =>
-  v == null ? 'n/a' : `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  v == null
+    ? 'n/a'
+    : `$${v.toLocaleString('en-US', { minimumFractionDigits: moneyDigits(v), maximumFractionDigits: moneyDigits(v) })}`
 
 function formatSeriesPoint(p: MacroSeriesPoint): string {
   if (p.value == null) return `- ${p.label}: unavailable`
@@ -207,7 +212,7 @@ export function formatCryptoMarket(c: CryptoMarketSnapshot): string {
       ? `- Fear & Greed: ${c.fearGreed.value} (${c.fearGreed.label})${c.fearGreed.previous == null ? '' : `, yesterday ${c.fearGreed.previous}`}`
       : '- Fear & Greed: unavailable',
     c.funding
-      ? `- ${c.symbol} perp: mark ${money(c.funding.markPrice)}, last funding ${num(c.funding.lastFundingRatePct, 4)}% per 8h, open interest ${c.funding.openInterest == null ? 'n/a' : `${c.funding.openInterest.toLocaleString('en-US', { maximumFractionDigits: 0 })} contracts`}`
+      ? `- ${c.symbol} perp: mark ${money(c.funding.markPrice)}, last funding ${num(c.funding.lastFundingRatePct, 4)}% per funding interval, open interest ${c.funding.openInterest == null ? 'n/a' : `${c.funding.openInterest.toLocaleString('en-US', { maximumFractionDigits: 0 })} (base asset units)`}`
       : `- ${c.symbol} perp funding: unavailable (no perpetual for this symbol or Binance futures unreachable)`,
   ]
   return `Crypto market (fetched ${new Date(c.fetchedAt).toISOString()}):\n${lines.join('\n')}`
@@ -241,7 +246,7 @@ export function formatCandlesSummary(symbol: string, data: CandlesResponse): str
   const bbUpper = last(indicators.bollingerBands.upper)
   const bbMiddle = last(indicators.bollingerBands.middle)
   const bbLower = last(indicators.bollingerBands.lower)
-  const closes = candles.slice(-10).map((c) => num(c.close)).join(', ')
+  const closes = candles.slice(-10).map((c) => money(c.close)).join(', ')
 
   return [
     `${symbol} ${data.interval}, ${candles.length} candles, window ${new Date(first.time * 1000).toISOString()} to ${new Date(latest.time * 1000).toISOString()}:`,

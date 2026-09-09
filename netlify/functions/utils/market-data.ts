@@ -87,7 +87,8 @@ export const FRED_SERIES: readonly FredSeriesSpec[] = [
   { id: 'DTWEXBGS', label: 'Broad dollar index', unit: 'index', limit: 6 },
 ]
 
-const CPI_SPEC: FredSeriesSpec = { id: 'CPIAUCSL', label: 'CPI year on year', unit: '%', limit: 13 }
+// 14 observations: latest and prior month, each with its own year-earlier value.
+const CPI_SPEC: FredSeriesSpec = { id: 'CPIAUCSL', label: 'CPI year on year', unit: '%', limit: 14 }
 
 interface FredObservation {
   date: string
@@ -175,7 +176,7 @@ async function loadMacroSnapshot(): Promise<MacroSnapshot> {
   // which figure is missing instead.
   const settled = await Promise.allSettled([
     ...FRED_SERIES.map((spec) => fetchFredSeries(spec, apiKey)),
-    fetchFredSeries({ ...CPI_SPEC, limit: 14 }, apiKey),
+    fetchFredSeries(CPI_SPEC, apiKey),
   ])
 
   const series = FRED_SERIES.map((spec, i) => {
@@ -191,6 +192,11 @@ async function loadMacroSnapshot(): Promise<MacroSnapshot> {
   const cpiYoY =
     cpiResult && cpiResult.status === 'fulfilled' ? toCpiYoYPoint(cpiResult.value) : emptyPoint(CPI_SPEC)
   if (cpiResult?.status === 'rejected') console.error('[market-data] FRED CPIAUCSL failed:', cpiResult.reason)
+
+  // An outage or rejected key must not be pinned in the cache for an hour.
+  if (cpiYoY.value == null && series.every((p) => p.value == null)) {
+    throw new MarketDataError('Every FRED series failed')
+  }
 
   return { series, cpiYoY, fetchedAt: Date.now() }
 }

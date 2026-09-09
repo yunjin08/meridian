@@ -91,7 +91,7 @@ describe('get_crypto_market', () => {
     expect(fetchCryptoMarket).toHaveBeenCalledWith('ETHUSDT')
     expect(out.content).toContain('$2.69T (-1.50% 24h)')
     expect(out.content).toContain('Fear & Greed: 66 (Greed), yesterday 69')
-    expect(out.content).toContain('ETHUSDT perp: mark $4,321.50, last funding 0.0100% per 8h, open interest 123,456 contracts')
+    expect(out.content).toContain('ETHUSDT perp: mark $4,321.50, last funding 0.0100% per funding interval, open interest 123,456 (base asset units)')
   })
 
   it('honours an explicit symbol', async () => {
@@ -137,6 +137,16 @@ describe('get_candles', () => {
     expect(text).toContain('histogram 0.20 (bullish momentum)')
     expect(text).toContain('Bollinger upper $160.00, middle $150.00, lower $140.00')
     expect(text.length).toBeLessThan(1_000)
+  })
+
+  it('keeps precision for sub-dollar pairs', () => {
+    const data = candles(50)
+    for (const c of data.candles) {
+      c.open = 0.0000123; c.high = 0.0000125; c.low = 0.000012; c.close = 0.0000124
+    }
+    const text = formatCandlesSummary('PEPEUSDT', data)
+    expect(text).toContain('Last close $0.00001240')
+    expect(text).not.toContain('$0.00,')
   })
 
   it('clamps the limit and uppercases the symbol', async () => {

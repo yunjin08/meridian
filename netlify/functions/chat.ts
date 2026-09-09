@@ -204,11 +204,16 @@ export const handler: Handler = async (event) => {
           toolBlocks.map(async (block) => {
             if (isReadTool(block.name)) {
               const outcome = await executeReadTool(block.name, block.input, context)
-              lookups.push(outcome.lookup)
-              return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content }
+              return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content, lookup: outcome.lookup }
             }
             appliedTools.push({ name: block.name as ChatToolName, input: block.input })
             return { type: 'tool_result' as const, tool_use_id: block.id, content: `Applied: ${block.name}` }
+          })
+        ).then((results) =>
+          // Record lookups in the model's call order, not completion order.
+          results.map(({ lookup, ...result }) => {
+            if (lookup) lookups.push(lookup)
+            return result
           })
         )
 

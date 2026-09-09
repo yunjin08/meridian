@@ -107,6 +107,14 @@ describe('fetchMacroSnapshot', () => {
     expect(fetchMock).toHaveBeenCalledTimes(7)
   })
 
+  it('does not cache a snapshot where every series failed', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error_message: 'Bad Request. The value for variable api_key is not registered.' }, 400))
+    await expect(fetchMacroSnapshot()).rejects.toThrow(/Every FRED series failed/)
+    fetchMock.mockResolvedValue(jsonResponse({ observations: [{ date: '2026-08-01', value: '1' }] }))
+    const snap = await fetchMacroSnapshot()
+    expect(snap.series[0]?.value).toBe(1)
+  })
+
   it('does not hit FRED again within the cache window', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ observations: [{ date: '2026-08-01', value: '1' }] }))
     await fetchMacroSnapshot()
