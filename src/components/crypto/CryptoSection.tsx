@@ -3,6 +3,7 @@ import { AlertList } from '@/components/alerts/AlertList'
 import { TimeframeSelector } from '@/components/chart/TimeframeSelector'
 import { ChartContainer } from '@/components/chart/ChartContainer'
 import { IndicatorPanel } from '@/components/chart/IndicatorPanel'
+import { AiAnalysisPanel } from '@/components/chart/AiAnalysisPanel'
 import { AssetSelector } from '@/components/chart/AssetSelector'
 import { CryptoTradeDetails } from '@/components/crypto/CryptoTradeDetails'
 import { useNavigationStore } from '@/store/navigationStore'
@@ -66,6 +67,9 @@ export function CryptoSection() {
           </div>
         </div>
       </div>
+
+      {/* AI chart analysis */}
+      <AiAnalysisPanel />
 
       {/* Bottom row: alerts */}
       <div className="bg-panel-bg border border-panel-border rounded-lg p-3 min-h-[180px]">
