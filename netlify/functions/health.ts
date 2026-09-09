@@ -16,5 +16,7 @@ export const handler: Handler = async () =>
       anthropicKey: isSet('ANTHROPIC_API_KEY'),
       anthropicBaseUrl: isSet('ANTHROPIC_BASE_URL'),
       anthropicKeyDefinedButEmpty: process.env['ANTHROPIC_API_KEY'] === '',
+      envCount: Object.keys(process.env).length,
+      netlifyVars: Object.keys(process.env).filter((k) => k.startsWith('NETLIFY_')).sort(),
     },
   })
