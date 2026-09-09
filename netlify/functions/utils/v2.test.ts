@@ -46,6 +46,13 @@ describe('toResponse', () => {
 })
 
 describe('asV2', () => {
+  it('turns an uncaught throw into a structured 500 instead of a platform 502', async () => {
+    const fn = asV2(async () => { throw new TypeError('boom') })
+    const res = await fn(new Request('https://x.test/api/thing'))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'unhandled: TypeError: boom' })
+  })
+
   it('threads a Request through an event handler', async () => {
     const fn = asV2(async (event) => ok({ method: event.httpMethod, q: event.queryStringParameters?.['x'] }))
     const res = await fn(new Request('https://x.test/api/thing?x=1', { method: 'POST', body: '' }))

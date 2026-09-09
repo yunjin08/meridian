@@ -238,7 +238,8 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
     return ok({ reply: fallbackReply, appliedTools, lookups } satisfies ChatApiResponse)
   } catch (err) {
     console.error('[chat] Anthropic API error:', err)
-    return badGateway('Failed to reach AI service')
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    return badGateway('Failed to reach AI service', { msg: detail })
   }
 }
 
