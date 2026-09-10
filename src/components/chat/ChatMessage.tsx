@@ -1,34 +1,58 @@
-import type { ChatMessage } from '@/types/chat'
+import type { ReactNode } from 'react'
+import type { ChatMessage as ChatMessageType } from '@/types/chat'
 
 interface Props {
-  message: ChatMessage
+  message: ChatMessageType
+}
+
+/**
+ * The model writes light markdown: bold runs and line breaks. Render just
+ * those; anything richer stays literal so nothing is silently dropped.
+ */
+export function renderInline(text: string): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? (
+      <strong key={i} className="font-semibold text-text-primary">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  )
+}
+
+export function AssistantBody({ text }: { text: string }) {
+  return <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderInline(text)}</div>
 }
 
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
   const lookups = message.lookups ?? []
+
   if (message.failed) {
     return (
       <div className="flex justify-start">
-        <div className="max-w-[85%] text-xs px-2.5 py-1.5 rounded-lg leading-relaxed border border-bear-red/40 text-bear-red font-mono">
+        <div className="max-w-[88%] text-[13px] px-3 py-2 rounded-lg leading-relaxed border border-bear-red/40 text-bear-red font-mono">
           Request failed: {message.content}. Nothing was changed.
         </div>
       </div>
     )
   }
+
   return (
     <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
       <div
-        className={`max-w-[85%] text-xs px-2.5 py-1.5 rounded-lg leading-relaxed whitespace-pre-wrap ${
+        className={`max-w-[88%] text-[13px] px-3 py-2 rounded-lg leading-relaxed ${
           isUser
-            ? 'bg-btc-orange/20 text-text-primary'
+            ? 'bg-btc-orange/20 text-text-primary whitespace-pre-wrap [overflow-wrap:anywhere]'
             : 'bg-terminal-bg text-text-primary border border-panel-border'
         }`}
       >
-        {message.content}
+        {isUser ? message.content : <AssistantBody text={message.content} />}
       </div>
       {lookups.length > 0 && (
-        <div className="max-w-[85%] px-1 text-[10px] text-text-muted font-mono truncate">
+        <div className="max-w-[88%] px-1 text-[11px] text-text-muted font-mono truncate">
           Looked up: {lookups.map((l) => l.summary).join(' · ')}
         </div>
       )}
