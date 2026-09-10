@@ -13,31 +13,49 @@ async function fetchPositions(): Promise<StockPositionsResponse> {
   return res.json() as Promise<StockPositionsResponse>
 }
 
+// Trading 212 allows one account-summary call per five seconds across every
+// tab on the account. A page load that lands inside that window fails, and
+// waiting a full poll interval left the stocks unpriced for 30 seconds.
+const RETRY_AFTER_FAILURE_MS = 6_000
+
 export function useStockPositions() {
   const setPositions = useStockPositionsStore((s) => s.setPositions)
   const setLoading = useStockPositionsStore((s) => s.setLoading)
   const setError = useStockPositionsStore((s) => s.setError)
 
-  function load() {
-    setLoading(true)
-    fetchPositions()
-      .then((data) => {
-        setPositions(data)
-        // Holdings list drives quotes, charts and the asset selector, so it
-        // must reflect what Trading 212 says is actually held.
-        usePortfolioStore.getState().syncFromPositions(data.positions)
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Failed to load Trading 212 positions'
-        console.error('[useStockPositions] fetch failed:', err)
-        setError(msg)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }
-
   useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
+
+    function load() {
+      setLoading(true)
+      fetchPositions()
+        .then((data) => {
+          if (cancelled) return
+          setPositions(data)
+          // Holdings list drives quotes, charts and the asset selector, so it
+          // must reflect what Trading 212 says is actually held.
+          usePortfolioStore.getState().syncFromPositions(data.positions)
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          const msg = err instanceof Error ? err.message : 'Failed to load Trading 212 positions'
+          console.error('[useStockPositions] fetch failed:', err)
+          setError(msg)
+          // Only retry early while nothing has ever loaded; once data exists
+          // the store keeps it and the regular poll is soon enough.
+          if (useStockPositionsStore.getState().fetchedAt === null && retryTimer === null) {
+            retryTimer = setTimeout(() => {
+              retryTimer = null
+              if (!document.hidden) load()
+            }, RETRY_AFTER_FAILURE_MS)
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }
+
     load()
 
     const interval = setInterval(() => {
@@ -50,7 +68,9 @@ export function useStockPositions() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
+      cancelled = true
       clearInterval(interval)
+      if (retryTimer !== null) clearTimeout(retryTimer)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
