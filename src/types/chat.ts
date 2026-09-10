@@ -7,6 +7,8 @@ export interface ChatMessage {
   timestamp: number
   /** External data the assistant consulted before answering. */
   lookups?: ChatLookup[]
+  /** The turn failed before the assistant answered; nothing was changed. */
+  failed?: boolean
 }
 
 export interface DashboardContext {

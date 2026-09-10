@@ -11,6 +11,7 @@ import { useNavigationStore } from '@/store/navigationStore'
 import { lastValue } from '@/lib/formatters'
 import { summarisePortfolio } from '@/lib/portfolioSummary'
 import { summarisePnl } from '@/lib/pnlSummary'
+import { findDuplicateAlert } from '@/lib/alertDedupe'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
 import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext } from '@/types/chat'
@@ -212,6 +213,8 @@ function applyToolResults(toolCalls: AppliedTool[]) {
             threshold: input.condition.threshold ?? 0,
           }
         }
+        // A retried turn can call add_alert twice for one request.
+        if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
         alertStore.addAlert(input.label, input.symbol.toUpperCase(), condition, input.autoReset ?? false)
         break
       }
@@ -244,6 +247,15 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // A failed turn stays in the history as a marker. Without it the model sees
+  // an unanswered request on the next turn and has claimed to have done the work.
+  const recordFailure = useCallback((detail: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: 'assistant', content: detail, timestamp: Date.now(), failed: true },
+    ])
+  }, [])
+
   const sendMessage = useCallback(
     async (text: string) => {
       const userMessage: ChatMessage = {
@@ -255,7 +267,7 @@ export function useChat() {
 
       const history = [...messages, userMessage].map((m) => ({
         role: m.role,
-        content: m.content,
+        content: m.failed ? `[System note: the previous request failed (${m.content}). No tools ran and nothing was changed.]` : m.content,
       }))
 
       setMessages((prev) => [...prev, userMessage])
@@ -275,7 +287,10 @@ export function useChat() {
         const data = (await res.json()) as ChatApiResponse
 
         if (!res.ok) {
-          setError((data as unknown as { error?: string }).error ?? 'Request failed')
+          const body = data as unknown as { error?: string; msg?: string }
+          const detail = body.msg ? `${body.error ?? 'Request failed'}: ${body.msg}` : (body.error ?? 'Request failed')
+          setError(detail)
+          recordFailure(detail)
           return
         }
 
@@ -294,12 +309,13 @@ export function useChat() {
 
         setMessages((prev) => [...prev, assistantMessage])
       } catch {
-        setError('Network error — check your connection')
+        setError('Network error, check your connection')
+        recordFailure('network error')
       } finally {
         setIsLoading(false)
       }
     },
-    [messages]
+    [messages, recordFailure]
   )
 
   const clearHistory = useCallback(() => {
