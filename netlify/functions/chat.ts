@@ -1,10 +1,10 @@
 import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import Anthropic from '@anthropic-ai/sdk'
-import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway } from './utils/http.ts'
+import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway, corsHeaders } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
-import { asV2 } from './utils/v2.ts'
+import { toHandlerEvent, toResponse } from './utils/v2.ts'
 import { CHAT_TOOLS, executeReadTool, isReadTool } from './utils/chat-tools.ts'
-import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatToolName } from '../../src/types/chat.ts'
+import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatStreamEvent, ChatToolName } from '../../src/types/chat.ts'
 
 const MODEL = 'claude-haiku-4-5-20251001'
 // A real question can need a lookup and then a write (read the 4h Bollinger
@@ -191,38 +191,40 @@ PRICE (${ctx.activeSymbol}):
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
-  if (event.httpMethod === 'OPTIONS') return preflight()
-  const unauthorizedResponse = requireAuth(event)
-  if (unauthorizedResponse) return unauthorizedResponse
-  if (event.httpMethod !== 'POST') return methodNotAllowed()
+// ---------------------------------------------------------------------------
+// The turn: one loop shared by the JSON and the streaming responses
+// ---------------------------------------------------------------------------
 
-  const apiKey = process.env['ANTHROPIC_API_KEY']
-  if (!apiKey) {
-    console.error('[chat] ANTHROPIC_API_KEY is not set')
-    return internalError('AI assistant is not configured')
-  }
+interface TurnHooks {
+  onDelta?: (text: string) => void
+  onLookup?: (lookup: ChatLookup) => void
+  onApplied?: (tool: AppliedTool) => void
+  onStatus?: (text: string) => void
+}
 
-  let body: ChatRequest
-  try {
-    body = JSON.parse(event.body ?? '{}') as ChatRequest
-  } catch {
-    return badRequest('Invalid JSON body')
-  }
+const STATUS_BY_TOOL: Record<string, string> = {
+  get_macro_snapshot: 'Looking up the macro snapshot',
+  get_crypto_market: 'Looking up crypto market data',
+  get_candles: 'Reading candles',
+  get_stock_quote: 'Fetching live quotes',
+}
 
-  const { messages, context } = body
-  if (!Array.isArray(messages) || !context) {
-    return badRequest('messages and context are required')
-  }
-
-  const client = new Anthropic({ apiKey })
+async function runTurn(
+  client: Anthropic,
+  context: DashboardContext,
+  history: ChatRequest['messages'],
+  hooks: TurnHooks
+): Promise<ChatApiResponse> {
   const system = buildSystemBlocks(context)
-  const appliedTools: AppliedTool[] = []
-  const lookups: ChatLookup[] = []
   const startedAt = Date.now()
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   const toolNames: string[] = []
+  const appliedTools: AppliedTool[] = []
+  const lookups: ChatLookup[] = []
   let iterations = 0
+
+  // Keep last 20 turns to avoid context bloat
+  let msgs: Anthropic.MessageParam[] = history.slice(-20).map((m) => ({ role: m.role, content: m.content }))
 
   // One line per run so cost and behaviour are explainable from the function
   // log: which tools ran, how many rounds, tokens in and out, cache hits.
@@ -234,23 +236,20 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
       })
     )
 
-  // Keep last 20 turns to avoid context bloat
-  const trimmed = messages.slice(-20)
-  let msgs: Anthropic.MessageParam[] = trimmed.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }))
-
-
   try {
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const response = await client.messages.create({
+      // Streaming every round means the user sees text the moment the model
+      // starts writing, including any preface before a tool call.
+      const stream = client.messages.stream({
         model: MODEL,
         max_tokens: 1024,
         system,
         tools: CHAT_TOOLS,
         messages: msgs,
       })
+      if (hooks.onDelta) stream.on('text', (delta) => hooks.onDelta?.(delta))
+      const response = await stream.finalMessage()
+
       iterations++
       usage.input += response.usage.input_tokens
       usage.output += response.usage.output_tokens
@@ -258,18 +257,20 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
       usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0
 
       if (response.stop_reason === 'end_turn') {
-        const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
-        const reply = textBlock?.text ?? ''
-        const result: ChatApiResponse = { reply, appliedTools, lookups }
+        const reply = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('')
         logRun('end_turn')
-        return ok(result)
+        return { reply, appliedTools, lookups }
       }
 
       if (response.stop_reason === 'tool_use') {
-        const toolBlocks = response.content.filter(
-          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
-        )
+        const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
         toolNames.push(...toolBlocks.map((b) => b.name))
+        for (const block of toolBlocks) {
+          if (isReadTool(block.name)) hooks.onStatus?.(STATUS_BY_TOOL[block.name] ?? 'Looking that up')
+        }
 
         // Read tools run here and feed real data back; write tools are only
         // recorded because the browser owns the stores they mutate. Independent
@@ -280,13 +281,18 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
               const outcome = await executeReadTool(block.name, block.input, context)
               return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content, lookup: outcome.lookup }
             }
-            appliedTools.push({ name: block.name as ChatToolName, input: block.input })
+            const applied: AppliedTool = { name: block.name as ChatToolName, input: block.input }
+            appliedTools.push(applied)
+            hooks.onApplied?.(applied)
             return { type: 'tool_result' as const, tool_use_id: block.id, content: `Applied: ${block.name}` }
           })
         ).then((results) =>
           // Record lookups in the model's call order, not completion order.
           results.map(({ lookup, ...result }) => {
-            if (lookup) lookups.push(lookup)
+            if (lookup) {
+              lookups.push(lookup)
+              hooks.onLookup?.(lookup)
+            }
             return result
           })
         )
@@ -309,17 +315,106 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
         ? `Done: ${appliedTools.map((t) => t.name).join(', ')} applied.`
         : 'Could not complete the request.'
     logRun('iteration_cap')
-    return ok({ reply: fallbackReply, appliedTools, lookups } satisfies ChatApiResponse)
+    return { reply: fallbackReply, appliedTools, lookups }
   } catch (err) {
     logRun('error')
-    console.error('[chat] Anthropic API error:', err)
-    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-    return badGateway('Failed to reach AI service', { msg: detail })
+    throw err
   }
+}
+
+// ---------------------------------------------------------------------------
+// Request handling
+// ---------------------------------------------------------------------------
+
+type Prepared =
+  | { ok: true; client: Anthropic; body: ChatRequest }
+  | { ok: false; response: HandlerResponse }
+
+function prepare(event: HandlerEvent): Prepared {
+  if (event.httpMethod === 'OPTIONS') return { ok: false, response: preflight() }
+  const unauthorizedResponse = requireAuth(event)
+  if (unauthorizedResponse) return { ok: false, response: unauthorizedResponse }
+  if (event.httpMethod !== 'POST') return { ok: false, response: methodNotAllowed() }
+
+  const apiKey = process.env['ANTHROPIC_API_KEY']
+  if (!apiKey) {
+    console.error('[chat] ANTHROPIC_API_KEY is not set')
+    return { ok: false, response: internalError('AI assistant is not configured') }
+  }
+
+  let body: ChatRequest
+  try {
+    body = JSON.parse(event.body ?? '{}') as ChatRequest
+  } catch {
+    return { ok: false, response: badRequest('Invalid JSON body') }
+  }
+  if (!Array.isArray(body.messages) || !body.context) {
+    return { ok: false, response: badRequest('messages and context are required') }
+  }
+  return { ok: true, client: new Anthropic({ apiKey }), body }
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+}
+
+/** Buffered JSON reply. Used by tests and by clients that do not ask for a stream. */
+export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
+  const prepared = prepare(event)
+  if (!prepared.ok) return prepared.response
+  try {
+    const result = await runTurn(prepared.client, prepared.body.context, prepared.body.messages, {})
+    return ok(result)
+  } catch (err) {
+    console.error('[chat] Anthropic API error:', err)
+    return badGateway('Failed to reach AI service', { msg: describeError(err) })
+  }
+}
+
+const NDJSON = 'application/x-ndjson'
+
+function streamTurn(prepared: Extract<Prepared, { ok: true }>): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (e: ChatStreamEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'))
+      try {
+        const result = await runTurn(prepared.client, prepared.body.context, prepared.body.messages, {
+          onDelta: (text) => send({ type: 'delta', text }),
+          onStatus: (text) => send({ type: 'status', text }),
+          onLookup: (lookup) => send({ type: 'lookup', lookup }),
+          onApplied: (tool) => send({ type: 'applied', tool }),
+        })
+        send({ type: 'done', result })
+      } catch (err) {
+        console.error('[chat] stream failed:', err)
+        send({ type: 'error', error: `Failed to reach AI service: ${describeError(err)}` })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, {
+    headers: { ...corsHeaders(), 'Content-Type': NDJSON, 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' },
+  })
 }
 
 // Functions 2.0 entry point: the AI Gateway only injects ANTHROPIC_API_KEY and
 // ANTHROPIC_BASE_URL into this runtime, never into a classic handler export.
-export default asV2(handleEvent)
+// A client that accepts NDJSON gets the turn streamed; everyone else gets JSON.
+export default async (req: Request): Promise<Response> => {
+  try {
+    const event = await toHandlerEvent(req)
+    if ((event.headers['accept'] ?? '').includes(NDJSON)) {
+      const prepared = prepare(event)
+      if (!prepared.ok) return toResponse(prepared.response)
+      return streamTurn(prepared)
+    }
+    return toResponse(await handleEvent(event))
+  } catch (err) {
+    console.error('[chat] unhandled error:', err)
+    return toResponse(internalError(`unhandled: ${describeError(err)}`))
+  }
+}
 
 export const config: Config = { path: '/api/chat' }

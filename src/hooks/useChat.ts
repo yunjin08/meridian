@@ -14,7 +14,7 @@ import { summarisePnl } from '@/lib/pnlSummary'
 import { findDuplicateAlert } from '@/lib/alertDedupe'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
-import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext } from '@/types/chat'
+import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatStreamEvent } from '@/types/chat'
 
 // Enough rows for the model to name the biggest winners and losers without
 // pushing every dust holding into the prompt.
@@ -242,10 +242,76 @@ function applyToolResults(toolCalls: AppliedTool[]) {
   }
 }
 
+class StreamError extends Error {}
+
+/**
+ * Consume the NDJSON event stream from /api/chat, pushing partial text and
+ * status into the draft as it arrives. Resolves with the final result the
+ * `done` event carries, so the caller treats streamed and buffered replies
+ * the same way.
+ */
+async function readStream(
+  body: ReadableStream<Uint8Array>,
+  setDraft: (d: ChatDraft) => void
+): Promise<ChatApiResponse> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let text = ''
+  let status: string | null = 'Thinking'
+  let result: ChatApiResponse | null = null
+
+  const handle = (line: string) => {
+    if (!line.trim()) return
+    const event = JSON.parse(line) as ChatStreamEvent
+    switch (event.type) {
+      case 'delta':
+        text += event.text
+        status = null
+        setDraft({ text, status })
+        break
+      case 'status':
+        status = event.text
+        setDraft({ text, status })
+        break
+      case 'lookup':
+      case 'applied':
+        break
+      case 'done':
+        result = event.result
+        break
+      case 'error':
+        throw new StreamError(event.error)
+    }
+  }
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let nl = buffer.indexOf('\n')
+    while (nl >= 0) {
+      handle(buffer.slice(0, nl))
+      buffer = buffer.slice(nl + 1)
+      nl = buffer.indexOf('\n')
+    }
+  }
+  if (buffer.trim()) handle(buffer)
+  if (!result) throw new StreamError('The reply ended before it was complete')
+  return result
+}
+
+/** Text the assistant has written so far this turn, and what it is doing. */
+export interface ChatDraft {
+  text: string
+  status: string | null
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ChatDraft | null>(null)
 
   // A failed turn stays in the history as a marker. Without it the model sees
   // an unanswered request on the next turn and has claimed to have done the work.
@@ -275,43 +341,44 @@ export function useChat() {
       setError(null)
 
       const context = buildContext()
+      setDraft({ text: '', status: 'Thinking' })
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
           credentials: 'include',
           body: JSON.stringify({ messages: history, context }),
         })
 
-        const data = (await res.json()) as ChatApiResponse
-
         if (!res.ok) {
-          const body = data as unknown as { error?: string; msg?: string }
+          const body = (await res.json().catch(() => ({}))) as { error?: string; msg?: string }
           const detail = body.msg ? `${body.error ?? 'Request failed'}: ${body.msg}` : (body.error ?? 'Request failed')
           setError(detail)
           recordFailure(detail)
           return
         }
 
-        // Apply any tool calls the assistant made (alerts, portfolio changes)
-        if (data.appliedTools.length > 0) {
-          applyToolResults(data.appliedTools)
-        }
+        const result = res.headers.get('content-type')?.includes('application/x-ndjson') && res.body
+          ? await readStream(res.body, setDraft)
+          : ((await res.json()) as ChatApiResponse)
+
+        if (result.appliedTools.length > 0) applyToolResults(result.appliedTools)
 
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: data.reply,
+          content: result.reply,
           timestamp: Date.now(),
-          ...(data.lookups.length > 0 ? { lookups: data.lookups } : {}),
+          ...(result.lookups.length > 0 ? { lookups: result.lookups } : {}),
         }
-
         setMessages((prev) => [...prev, assistantMessage])
-      } catch {
-        setError('Network error, check your connection')
-        recordFailure('network error')
+      } catch (err) {
+        const detail = err instanceof StreamError ? err.message : 'Network error, check your connection'
+        setError(detail)
+        recordFailure(detail)
       } finally {
+        setDraft(null)
         setIsLoading(false)
       }
     },
@@ -323,5 +390,5 @@ export function useChat() {
     setError(null)
   }, [])
 
-  return { messages, isLoading, error, sendMessage, clearHistory }
+  return { messages, isLoading, error, draft, sendMessage, clearHistory }
 }

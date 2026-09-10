@@ -143,3 +143,15 @@ export interface ChatApiResponse {
   appliedTools: AppliedTool[]
   lookups: ChatLookup[]
 }
+
+/**
+ * Newline-delimited JSON events on POST /api/chat when the client sends
+ * `Accept: application/x-ndjson`. `done` always closes a successful stream.
+ */
+export type ChatStreamEvent =
+  | { type: 'status'; text: string }
+  | { type: 'delta'; text: string }
+  | { type: 'lookup'; lookup: ChatLookup }
+  | { type: 'applied'; tool: AppliedTool }
+  | { type: 'done'; result: ChatApiResponse }
+  | { type: 'error'; error: string }

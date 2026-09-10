@@ -6,7 +6,14 @@ const createMock = vi.fn()
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class {
-    messages = { create: createMock }
+    messages = {
+      // The handler streams every round; the test double answers with the
+      // final message and ignores text listeners.
+      stream: (params: unknown) => {
+        const final = createMock(params)
+        return { on() { return this }, finalMessage: async () => final }
+      },
+    }
   },
 }))
 
