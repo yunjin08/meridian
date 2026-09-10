@@ -59,4 +59,6 @@ export interface StockPositionsResponse {
   account: StockAccountSummary
   positions: StockPosition[]
   fetchedAt: number
+  /** Set when Trading 212 throttled the refresh and the function served its last good data. */
+  stale?: boolean
 }
