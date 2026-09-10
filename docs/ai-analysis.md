@@ -138,9 +138,19 @@ ChatWidget ── POST /api/chat ──► chat.ts loop (max 5 rounds)
 
 | Tool | Source | Cache | Notes |
 |------|--------|-------|-------|
-| `get_macro_snapshot` | FRED: FEDFUNDS, CPIAUCSL (derived YoY), UNRATE, DGS2, DGS10, T10Y2Y, DTWEXBGS | 1 h | Needs `FRED_API_KEY`. Without it the tool tells the model macro is not configured. |
+| `get_macro_snapshot` | FRED: FEDFUNDS, CPIAUCSL (derived YoY), UNRATE, DGS2, DGS10, T10Y2Y, DTWEXBGS, plus daily closes SP500, NASDAQCOM, DJIA, VIXCLS | 1 h | Needs `FRED_API_KEY`. Without it the tool tells the model macro is not configured. Index closes lag a day during the session. |
 | `get_crypto_market` | CoinGecko `/global`, alternative.me Fear & Greed, Binance Futures funding + open interest | 1 min | Keyless. `COINGECKO_API_KEY` (demo) is optional. Each provider fails independently. |
 | `get_candles` | Binance klines via `utils/klines.ts`, same code as `/api/candles` | none | Returns a compact summary (window high/low, latest RSI/MACD/BB, last 10 closes), never raw candles. |
+| `get_stock_quote` | Finnhub `/quote` for up to 5 tickers, same client as `/api/stock-quotes` | none | Live price, day change and range. SPY/QQQ/DIA give intraday index moves. Unknown tickers come back as zeros from Finnhub and are reported as "no data". |
+
+The system prompt also carries the whole portfolio as the Overview tab shows it
+(total, per-class value and share, 24h change) and the all-time profit and loss
+(crypto net, still-invested and current value, days above and below water, top
+rows by absolute net, Trading 212 unrealized and realized, top positions). The
+browser builds both with the same pure `summarisePortfolio` and `summarisePnl`
+functions the Overview uses, so the assistant and the screen never disagree.
+The prompt tells the model to speak to the user's position and never to invent
+a P&L figure.
 
 `GET /api/macro` exposes the same macro and crypto snapshot for the UI; nothing
 consumes it yet (the analysis panel regime line is the intended consumer).
@@ -163,6 +173,9 @@ feature has one user. Expected behaviour in brackets.
 5. "alert me if BTC drops under the 4h Bollinger lower band" [lookup then `add_alert` with the fetched level]
 6. "what is the price of gold" [declines: no tool covers it, no made-up number]
 7. With `FRED_API_KEY` unset: prompt 1 [says macro data is not configured, does not guess]
+8. "why are stocks down today" [macro snapshot for the index closes and VIX, `get_stock_quote` for SPY/QQQ, relates it to the user's Trading 212 positions]
+9. "how am I doing overall, and where am I losing money" [no lookup needed; quotes the all-time net and names the biggest losing rows from the P&L section]
+10. "if BTC drops 10% what is my portfolio worth" [arithmetic from the portfolio section, no invented figures]
 
 ---
 
