@@ -222,6 +222,9 @@ async function runTurn(
   const appliedTools: AppliedTool[] = []
   const lookups: ChatLookup[] = []
   let iterations = 0
+  // Everything the model said this turn, across rounds. What the client
+  // streamed and what the final reply says must be the same text.
+  const said: string[] = []
 
   // Keep last 20 turns to avoid context bloat
   let msgs: Anthropic.MessageParam[] = history.slice(-20).map((m) => ({ role: m.role, content: m.content }))
@@ -247,8 +250,23 @@ async function runTurn(
         tools: CHAT_TOOLS,
         messages: msgs,
       })
-      if (hooks.onDelta) stream.on('text', (delta) => hooks.onDelta?.(delta))
+      if (hooks.onDelta) {
+        let firstDelta = true
+        stream.on('text', (delta) => {
+          // A preface before a tool call and the answer after it are separate
+          // paragraphs; the model never emits the break between rounds itself.
+          if (firstDelta && said.length > 0) hooks.onDelta?.('\n\n')
+          firstDelta = false
+          hooks.onDelta?.(delta)
+        })
+      }
       const response = await stream.finalMessage()
+      const roundText = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim()
+      if (roundText) said.push(roundText)
 
       iterations++
       usage.input += response.usage.input_tokens
@@ -257,12 +275,8 @@ async function runTurn(
       usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0
 
       if (response.stop_reason === 'end_turn') {
-        const reply = response.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('')
         logRun('end_turn')
-        return { reply, appliedTools, lookups }
+        return { reply: said.join('\n\n'), appliedTools, lookups }
       }
 
       if (response.stop_reason === 'tool_use') {

@@ -52,7 +52,7 @@ export function ChatMessage({ message }: Props) {
         {isUser ? message.content : <AssistantBody text={message.content} />}
       </div>
       {lookups.length > 0 && (
-        <div className="max-w-[88%] px-1 text-[11px] text-text-muted font-mono truncate">
+        <div className="max-w-[88%] px-1 text-[11px] text-text-muted font-mono leading-snug">
           Looked up: {lookups.map((l) => l.summary).join(' · ')}
         </div>
       )}

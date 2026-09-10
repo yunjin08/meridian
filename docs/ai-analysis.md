@@ -187,10 +187,10 @@ Ordered roughly by value-to-effort. None are started.
   snapshot into `analyze.ts` so the read can say "rates unchanged, dollar firm,
   greed at 66" alongside the technicals.
 
-- **Stream the response.** Switch `/api/analyze` to SSE and render the summary as
-  it arrives. Note: forced tool output does not stream token-by-token as prose,
-  so streaming likely means dropping the forced tool and streaming a text summary
-  while keeping a small structured tail, or streaming `input_json_delta`.
+- **Stream the analysis panel.** The chat streams (NDJSON events, see the chat
+  section); `/api/analyze` still buffers. Forced tool output does not stream as
+  prose, so this means dropping the forced tool for a text summary with a
+  structured tail, or streaming `input_json_delta`.
 - **Extend to the Stocks/REITs tab.** `StocksSection` also uses `ChartContainer`
   and `IndicatorPanel`; the panel and hook are close to reusable if the payload
   builder reads the active stock symbol and quote instead of crypto.
@@ -275,8 +275,9 @@ Tier 1 (one forced-tool call). Recorded in the market-data spec.
 **Operate.**
 - (13) Cost: Haiku 4.5 for both features; upstream data cached; prompt cache
   prepared. Upgrade to Sonnet is one constant if the evals show poor reasoning.
-- (14) UX: each reply shows "Looked up:" for its tools; a failed turn shows in
-  red; writes appear in the alerts and watchlist lists. Streaming is not done.
+- (14) UX: the reply streams as the model writes it, with a status line for
+  each lookup in progress; each reply shows "Looked up:" for its tools; a
+  failed turn shows in red; writes appear in the alerts and watchlist lists.
 - (15) Reliability: SDK retries on transient API errors; each upstream fails
   independently and the model is told what was unavailable; a throttled
   Trading 212 serves its last good data flagged stale.
