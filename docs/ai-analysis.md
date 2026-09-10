@@ -203,6 +203,86 @@ Ordered roughly by value-to-effort. None are started.
 
 ---
 
+## AI decisions (jed-standards ai-app-build)
+
+One line per consideration, including the ones declined. Revisit when the
+feature changes shape.
+
+**Tier.** Chat is Tier 3 (the model picks tools until it stops). Analysis is
+Tier 1 (one forced-tool call). Recorded in the market-data spec.
+
+**Enterprise baseline.**
+- Tenancy: one owner, one tenant. No per-tenant index, cache key or budget;
+  every request is behind `requireAuth`. Not needed because there is no second
+  user by design (CLAUDE.md rule 4 keeps the app single-owner).
+- Identity and authorization: the model acts with the owner's rights and no
+  more; tools are the owner's own dashboard actions.
+- Audit of writes: alerts and watchlist edits made by the model are applied in
+  the browser and appear in the UI and in the `chat_run` log line as tool
+  names, not as full arguments. Accepted because both writes live in
+  localStorage and are reversible in one click. A server-side write would
+  need a real audit row before it joined the tool list.
+- Compliance: prompts and outputs are not stored by this app. The AI Gateway
+  states it does not store them either. Portfolio figures and P&L go to the
+  model on every turn; that is the point of the feature and the owner is the
+  only reader.
+- Cost governance: no per-user cap in code. The gateway's per-minute credit
+  limit (90 credits on Free) is the ceiling, plus `max_tokens` 1024 and five
+  rounds per turn. Token usage per run is logged so the bill is explainable.
+
+**Shape.**
+- (5) In code: auth, snapshot building, all fetching, formatting, caching,
+  applying writes. Model-driven: which tool to call and what to say. Nothing
+  else is delegated.
+- (1) Tools: four reads, five writes, descriptions say when to call, errors are
+  actionable text. Reads are idempotent. `add_alert` is deduplicated in the
+  browser on symbol, type and threshold so a retried turn cannot double-create.
+- (2) Context: static instructions are one cached system block; the live
+  snapshot is a second block after it. History is trimmed to the last 20
+  messages. Tool results are compact summaries. Haiku 4.5 caches prefixes of
+  4096+ tokens only, so the cache marker pays off once the static block or
+  tool list grows, or the model changes; the `cacheRead` field in the run log
+  shows when.
+- (3) Planning: none. Turns are short; a plan would cost more than it saves.
+- (4) Subagents: none. One coherent conversation, no fan-out.
+
+**Control.**
+- (6) Termination: `end_turn` or the five-round cap. Verification: read
+  results are formatted from parsed fields, so the model cannot quote a value
+  the source did not return; writes are visible in the UI immediately. No
+  automatic checker for the prose itself; the owner is the gate.
+- (7) Limits: five rounds, 1024 output tokens, 8 s per upstream fetch, 60 s
+  function timeout. No loop detection (the cap bounds it). No mid-run kill
+  switch: a turn lasts seconds and the owner can simply ignore the reply.
+- (8) State: a turn lives in one request. A failed turn stays in the browser
+  history as a marked failure and is sent to the model as a system note, so a
+  later turn cannot claim the failed work happened. No resume; a failed turn is
+  re-asked.
+- (9) Human in the loop: no approval gate on writes because both are reversible
+  and shown at once. The model asks the user when it is unsure (seen in evals).
+
+**Trust.**
+- (10) Prompt injection: sources return numbers and enum labels; results are
+  built from parsed fields, never the raw body; write tools stay reversible.
+  Any free-text source (news, social) does not join without a gate on writes.
+- (11) Observability: one JSON line per run (`chat_run`, `analyze_run`) with
+  outcome, iterations, tool names, tokens in and out, cache reads and writes,
+  duration. Read it in the Netlify function log.
+- (12) Evals: the manual prompt list above, run after prompt or model changes.
+  Not in CI, because each run spends credits and the feature has one user.
+  This is a standing choice, not a gap to close.
+
+**Operate.**
+- (13) Cost: Haiku 4.5 for both features; upstream data cached; prompt cache
+  prepared. Upgrade to Sonnet is one constant if the evals show poor reasoning.
+- (14) UX: each reply shows "Looked up:" for its tools; a failed turn shows in
+  red; writes appear in the alerts and watchlist lists. Streaming is not done.
+- (15) Reliability: SDK retries on transient API errors; each upstream fails
+  independently and the model is told what was unavailable; a throttled
+  Trading 212 serves its last good data flagged stale.
+
+---
+
 ## Constraints to keep in mind
 
 - Not financial advice; the prompt forbids predictions and the UI shows a
