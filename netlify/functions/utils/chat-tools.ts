@@ -2,6 +2,8 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { BinanceError } from './binance-client.ts'
 import { EmptyKlinesError, fetchCandlesWithIndicators, VALID_INTERVALS } from './klines.ts'
 import { fetchCryptoMarket, fetchMacroSnapshot, MissingFredKeyError } from './market-data.ts'
+import { finnhubFetch, FinnhubError } from './finnhub-client.ts'
+import type { FinnhubQuote } from '../../../src/types/finnhub.ts'
 import type { ChatLookup, ChatReadToolName, DashboardContext } from '../../../src/types/chat.ts'
 import type { CryptoMarketSnapshot, MacroSeriesPoint, MacroSnapshot } from '../../../src/types/market.ts'
 import type { CandlesResponse } from '../../../src/types/candle.ts'
@@ -117,11 +119,14 @@ For price conditions, use USD (stocks) or USDT (crypto).`,
 const READ_TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_macro_snapshot',
-    description: `Fetch the latest US macro figures from FRED: Fed funds rate, CPI inflation year on year,
-unemployment, 2y and 10y Treasury yields, the 10y-2y spread, and the broad dollar index.
-Call this whenever the user asks about interest rates, inflation, the Fed, yields, the dollar,
-recession signals, or the macro backdrop. Never state these numbers from memory.
-Returns each figure with its latest value, previous value and observation date.`,
+    description: `Fetch the latest US macro and equity-market figures from FRED: Fed funds rate, CPI inflation
+year on year, unemployment, 2y and 10y Treasury yields, the 10y-2y spread, the broad dollar index, and the
+latest daily closes of the S&P 500, Nasdaq Composite, Dow Jones and the VIX volatility index.
+Call this whenever the user asks about interest rates, inflation, the Fed, yields, the dollar, recession
+signals, the macro backdrop, or why stocks or the wider market are up or down. Never state these numbers
+from memory. Index closes are end of day, so during the session they are the previous close; use
+get_stock_quote for live intraday index moves (SPY, QQQ, DIA).
+Returns each figure with its latest value, previous value, change and observation date.`,
     input_schema: { type: 'object' as const, properties: {} },
   },
   {
@@ -163,6 +168,24 @@ Returns a compact summary: window high and low, change over the window, latest i
       required: ['symbol', 'interval'],
     },
   },
+  {
+    name: 'get_stock_quote',
+    description: `Fetch live US stock or ETF quotes from Finnhub for up to 5 tickers: price, day change, day high and low.
+Call this for any stock or ETF the user names that is not already priced in the dashboard context, and for
+intraday index moves via the ETFs SPY (S&P 500), QQQ (Nasdaq 100), DIA (Dow), IWM (Russell 2000) or VIXY.
+Use it to answer "why are stocks down today" together with get_macro_snapshot.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        tickers: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'US tickers, e.g. ["SPY", "AAPL"]. Max 5.',
+        },
+      },
+      required: ['tickers'],
+    },
+  },
 ]
 
 export const CHAT_TOOLS: Anthropic.Tool[] = [...WRITE_TOOLS, ...READ_TOOLS]
@@ -171,6 +194,7 @@ export const READ_TOOL_NAMES: ReadonlySet<string> = new Set<ChatReadToolName>([
   'get_macro_snapshot',
   'get_crypto_market',
   'get_candles',
+  'get_stock_quote',
 ])
 
 export function isReadTool(name: string): name is ChatReadToolName {
@@ -192,10 +216,35 @@ const money = (v: number | null | undefined): string =>
     ? 'n/a'
     : `$${v.toLocaleString('en-US', { minimumFractionDigits: moneyDigits(v), maximumFractionDigits: moneyDigits(v) })}`
 
+const signed = (v: number, digits = 2): string => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`
+
 function formatSeriesPoint(p: MacroSeriesPoint): string {
   if (p.value == null) return `- ${p.label}: unavailable`
-  const prev = p.previous == null ? '' : ` (previous ${num(p.previous)}${p.unit === 'index' ? '' : p.unit})`
-  return `- ${p.label}: ${num(p.value)}${p.unit === 'index' ? '' : p.unit}${prev}, as of ${p.date ?? 'n/a'}`
+  const unit = p.unit === 'index' ? '' : p.unit
+  let prev = ''
+  if (p.previous != null) {
+    // Index levels are only meaningful as a move, so show the percent change too.
+    const pct = p.unit === 'index' && p.previous !== 0 ? `, ${signed((p.value / p.previous - 1) * 100)}%` : ''
+    prev = ` (previous ${num(p.previous)}${unit}${pct})`
+  }
+  return `- ${p.label}: ${num(p.value)}${unit}${prev}, as of ${p.date ?? 'n/a'}`
+}
+
+export interface QuoteLine {
+  ticker: string
+  price: number
+  change: number
+  changePercent: number
+  high: number
+  low: number
+}
+
+export function formatQuotes(quotes: QuoteLine[], missing: string[]): string {
+  const lines = quotes.map(
+    (q) => `- ${q.ticker}: ${money(q.price)} (${signed(q.change)} / ${signed(q.changePercent)}% today), day range ${money(q.low)} to ${money(q.high)}`
+  )
+  if (missing.length > 0) lines.push(`- No data for: ${missing.join(', ')} (check the ticker; Finnhub covers US listings)`)
+  return `Live quotes (Finnhub, fetched ${new Date().toISOString()}):\n${lines.join('\n')}`
 }
 
 export function formatMacroSnapshot(m: MacroSnapshot): string {
@@ -274,6 +323,23 @@ interface CandlesInput {
   limit?: unknown
 }
 
+const MAX_QUOTE_TICKERS = 5
+
+async function fetchQuotes(tickers: string[]): Promise<{ quotes: QuoteLine[]; missing: string[] }> {
+  const results = await Promise.all(
+    tickers.map(async (ticker) => {
+      const q = await finnhubFetch<FinnhubQuote>('/quote', { symbol: ticker })
+      // Finnhub answers an unknown ticker with zeros rather than an error.
+      if (!q.c) return { ticker, quote: null }
+      return { ticker, quote: { ticker, price: q.c, change: q.d, changePercent: q.dp, high: q.h, low: q.l } }
+    })
+  )
+  return {
+    quotes: results.flatMap((r) => (r.quote ? [r.quote] : [])),
+    missing: results.filter((r) => !r.quote).map((r) => r.ticker),
+  }
+}
+
 const CANDLE_LIMIT_MIN = 50
 const CANDLE_LIMIT_MAX = 200
 const CANDLE_LIMIT_DEFAULT = 100
@@ -312,6 +378,25 @@ export async function executeReadTool(
       } catch (err) {
         console.error('[chat-tools] crypto market failed:', err)
         return { content: 'Crypto market data could not be fetched right now. Tell the user it is temporarily unavailable.', lookup }
+      }
+    }
+    case 'get_stock_quote': {
+      const raw = (input as { tickers?: unknown } | null)?.tickers
+      const tickers = Array.isArray(raw)
+        ? [...new Set(raw.filter((t): t is string => typeof t === 'string').map((t) => t.trim().toUpperCase()).filter(Boolean))].slice(0, MAX_QUOTE_TICKERS)
+        : []
+      const lookup: ChatLookup = { name, summary: tickers.length ? `quotes: ${tickers.join(', ')}` : 'quotes' }
+      if (tickers.length === 0) return { content: 'get_stock_quote needs at least one ticker, e.g. ["SPY"].', lookup }
+      try {
+        const { quotes, missing } = await fetchQuotes(tickers)
+        return { content: formatQuotes(quotes, missing), lookup }
+      } catch (err) {
+        if (err instanceof Error && /FINNHUB_API_KEY/.test(err.message)) {
+          return { content: 'Live stock quotes are not configured on this dashboard (FINNHUB_API_KEY is missing). Tell the user; do not guess prices.', lookup }
+        }
+        if (err instanceof FinnhubError) return { content: `Finnhub returned HTTP ${err.status}. Live quotes are temporarily unavailable.`, lookup }
+        console.error('[chat-tools] get_stock_quote failed:', err)
+        return { content: 'Live quotes could not be fetched right now.', lookup }
       }
     }
     case 'get_candles': {

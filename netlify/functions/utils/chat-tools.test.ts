@@ -18,6 +18,15 @@ vi.mock('./klines.ts', async (importOriginal) => {
   return { ...actual, fetchCandlesWithIndicators: vi.fn() }
 })
 
+vi.mock('./finnhub-client.ts', () => {
+  class FinnhubError extends Error {
+    constructor(public readonly status: number, message: string) {
+      super(message)
+    }
+  }
+  return { FinnhubError, finnhubFetch: vi.fn() }
+})
+
 vi.mock('./binance-client.ts', () => {
   class BinanceError extends Error {
     constructor(public readonly code: number, message: string) {
@@ -30,6 +39,7 @@ vi.mock('./binance-client.ts', () => {
 import { fetchCryptoMarket, fetchMacroSnapshot, MissingFredKeyError } from './market-data.ts'
 import { fetchCandlesWithIndicators } from './klines.ts'
 import { BinanceError } from './binance-client.ts'
+import { finnhubFetch, FinnhubError } from './finnhub-client.ts'
 import { CHAT_TOOLS, executeReadTool, formatCandlesSummary, isReadTool, READ_TOOL_NAMES } from './chat-tools.ts'
 
 const ctx = { activeSymbol: 'ETHUSDT' } as DashboardContext
@@ -38,6 +48,7 @@ beforeEach(() => {
   vi.mocked(fetchMacroSnapshot).mockReset()
   vi.mocked(fetchCryptoMarket).mockReset()
   vi.mocked(fetchCandlesWithIndicators).mockReset()
+  vi.mocked(finnhubFetch).mockReset()
 })
 
 describe('tool registry', () => {
@@ -65,6 +76,20 @@ describe('get_macro_snapshot', () => {
     expect(out.content).toContain('Fed funds effective rate: 4.33% (previous 4.30%)')
     expect(out.content).toContain('10y Treasury yield: unavailable')
     expect(out.lookup).toEqual({ name: 'get_macro_snapshot', summary: 'US macro snapshot' })
+  })
+
+  it('shows index levels as a move, not a bare number', async () => {
+    vi.mocked(fetchMacroSnapshot).mockResolvedValue({
+      series: [
+        { id: 'SP500', label: 'S&P 500', unit: 'index', value: 6400, previous: 6500, date: '2026-09-09' },
+        { id: 'VIXCLS', label: 'VIX volatility index', unit: 'index', value: 22, previous: 18, date: '2026-09-09' },
+      ],
+      cpiYoY: { id: 'CPIAUCSL', label: 'CPI year on year', unit: '%', value: null, previous: null, date: null },
+      fetchedAt: 0,
+    })
+    const out = await executeReadTool('get_macro_snapshot', {}, ctx)
+    expect(out.content).toContain('S&P 500: 6400.00 (previous 6500.00, -1.54%), as of 2026-09-09')
+    expect(out.content).toContain('VIX volatility index: 22.00 (previous 18.00, +22.22%)')
   })
 
   it('tells the model macro data is not configured instead of throwing', async () => {
@@ -127,6 +152,38 @@ function candles(n: number): CandlesResponse {
     fetchedAt: 0,
   }
 }
+
+describe('get_stock_quote', () => {
+  it('quotes several tickers and names the ones Finnhub has no data for', async () => {
+    vi.mocked(finnhubFetch).mockImplementation(async (_path, params) => {
+      const symbol = String((params as { symbol: string }).symbol)
+      if (symbol === 'SPY') return { c: 640.12, d: -6.4, dp: -0.99, h: 648, l: 638.5, o: 647, pc: 646.52, t: 0 }
+      return { c: 0, d: 0, dp: 0, h: 0, l: 0, o: 0, pc: 0, t: 0 }
+    })
+    const out = await executeReadTool('get_stock_quote', { tickers: [' spy ', 'NOPE', 'spy'] }, ctx)
+    expect(finnhubFetch).toHaveBeenCalledTimes(2)
+    expect(out.content).toContain('SPY: $640.12 (-6.40 / -0.99% today), day range $638.50 to $648.00')
+    expect(out.content).toContain('No data for: NOPE')
+    expect(out.lookup.summary).toBe('quotes: SPY, NOPE')
+  })
+
+  it('caps the request at five tickers and rejects an empty list', async () => {
+    vi.mocked(finnhubFetch).mockResolvedValue({ c: 1, d: 0, dp: 0, h: 1, l: 1, o: 1, pc: 1, t: 0 })
+    await executeReadTool('get_stock_quote', { tickers: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] }, ctx)
+    expect(finnhubFetch).toHaveBeenCalledTimes(5)
+    const empty = await executeReadTool('get_stock_quote', { tickers: [] }, ctx)
+    expect(empty.content).toMatch(/needs at least one ticker/)
+  })
+
+  it('tells the model when Finnhub is not configured or unavailable', async () => {
+    vi.mocked(finnhubFetch).mockRejectedValue(new Error('FINNHUB_API_KEY environment variable is not set'))
+    const out = await executeReadTool('get_stock_quote', { tickers: ['SPY'] }, ctx)
+    expect(out.content).toMatch(/not configured/)
+    vi.mocked(finnhubFetch).mockRejectedValue(new FinnhubError(429, 'Finnhub HTTP 429'))
+    const limited = await executeReadTool('get_stock_quote', { tickers: ['SPY'] }, ctx)
+    expect(limited.content).toContain('HTTP 429')
+  })
+})
 
 describe('get_candles', () => {
   it('summarises the window instead of returning raw candles', () => {
