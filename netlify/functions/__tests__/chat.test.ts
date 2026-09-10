@@ -67,14 +67,18 @@ function ask(text: string) {
   return event({ messages: [{ role: 'user', content: text }], context })
 }
 
+const usage = { input_tokens: 1200, output_tokens: 80, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+
 const endTurn = (text: string) => ({
   stop_reason: 'end_turn',
   content: [{ type: 'text', text }],
+  usage,
 })
 
 const toolUse = (calls: Array<{ id: string; name: string; input: unknown }>) => ({
   stop_reason: 'tool_use',
   content: calls.map((c) => ({ type: 'tool_use', ...c })),
+  usage,
 })
 
 beforeEach(() => {
@@ -147,7 +151,12 @@ describe('chat handler tool loop', () => {
   it('puts the whole portfolio and its profit and loss in front of the model', async () => {
     createMock.mockResolvedValueOnce(endTurn('ok'))
     await handler(event({ messages: [{ role: 'user', content: 'how am I doing' }], context: contextWithPnl }))
-    const system = (createMock.mock.calls[0]?.[0] as { system: string }).system
+    const blocks = (createMock.mock.calls[0]?.[0] as { system: Array<{ text: string; cache_control?: unknown }> }).system
+    // Stable instructions first and marked for caching; the live snapshot after them.
+    expect(blocks[0]?.cache_control).toEqual({ type: 'ephemeral' })
+    expect(blocks[0]?.text).toContain('You are a concise investing assistant')
+    expect(blocks[1]?.cache_control).toBeUndefined()
+    const system = blocks[1]?.text ?? ''
     expect(system).toContain('PORTFOLIO (as on the Overview tab): total 1,784.50 USD')
     expect(system).toContain('crypto: 1,587.32 USDT = 89.0% of total, 11 holdings')
     expect(system).toContain('PROFIT AND LOSS (all time, vs. what the user put in): -575.69 USD')

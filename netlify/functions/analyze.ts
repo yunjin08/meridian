@@ -120,6 +120,7 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
   }
 
   const client = new Anthropic({ apiKey })
+  const startedAt = Date.now()
 
   try {
     const response = await client.messages.create({
@@ -129,6 +130,13 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
       tool_choice: { type: 'tool', name: 'report_analysis' },
       messages: [{ role: 'user', content: buildPrompt(body) }],
     })
+    console.log(
+      JSON.stringify({
+        event: 'analyze_run', model: MODEL, symbol: body.symbol, timeframe: body.timeframe,
+        input: response.usage.input_tokens, output: response.usage.output_tokens,
+        durationMs: Date.now() - startedAt,
+      })
+    )
 
     const toolBlock = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'report_analysis'

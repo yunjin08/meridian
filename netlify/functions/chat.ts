@@ -15,14 +15,11 @@ const MAX_ITERATIONS = 5
 // System prompt builder
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(ctx: DashboardContext): string {
-  const fmt = (n: number, d = 2) =>
-    n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
-  const fmtPrice = (n: number | null) => (n != null ? `$${fmt(n)}` : 'N/A')
-  const fmtPct = (n: number | null) =>
-    n != null ? `${n >= 0 ? '+' : ''}${fmt(n)}%` : 'N/A'
-
-  let prompt = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
+// Instructions never change between requests; the dashboard snapshot changes on
+// every one. Splitting them lets the stable half be cached. Haiku 4.5 only
+// caches prefixes of 4096+ tokens, so today this is a no-cost preparation; the
+// run log's cacheRead field shows when it starts to pay.
+const STATIC_INSTRUCTIONS = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
 You can answer questions about live data AND manage alerts and the portfolio watchlist using tools.
 Be brief and factual: one or two sentences for informational answers.
 Do not give financial advice. When you create, remove, or toggle an alert, confirm what you did.
@@ -40,8 +37,23 @@ generalities: when they ask about the market, say what it means for what they ho
 money, say so plainly and name where the loss sits; when they ask whether to buy, lay out the data and
 their current exposure and leave the decision to them. Never invent a P&L figure; every number you quote
 about their portfolio must come from the data below or from a tool result.
+If the history contains a system note that a previous request failed, treat that request as not done.`
 
-=== LIVE DASHBOARD DATA ===
+export function buildSystemBlocks(ctx: DashboardContext): Anthropic.TextBlockParam[] {
+  return [
+    { type: 'text', text: STATIC_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: buildDashboardData(ctx) },
+  ]
+}
+
+function buildDashboardData(ctx: DashboardContext): string {
+  const fmt = (n: number, d = 2) =>
+    n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+  const fmtPrice = (n: number | null) => (n != null ? `$${fmt(n)}` : 'N/A')
+  const fmtPct = (n: number | null) =>
+    n != null ? `${n >= 0 ? '+' : ''}${fmt(n)}%` : 'N/A'
+
+  let prompt = `=== LIVE DASHBOARD DATA ===
 
 ACTIVE CHART SYMBOL: ${ctx.activeSymbol}
 PRICE (${ctx.activeSymbol}):
@@ -204,7 +216,23 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
   }
 
   const client = new Anthropic({ apiKey })
-  const systemPrompt = buildSystemPrompt(context)
+  const system = buildSystemBlocks(context)
+  const appliedTools: AppliedTool[] = []
+  const lookups: ChatLookup[] = []
+  const startedAt = Date.now()
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const toolNames: string[] = []
+  let iterations = 0
+
+  // One line per run so cost and behaviour are explainable from the function
+  // log: which tools ran, how many rounds, tokens in and out, cache hits.
+  const logRun = (outcome: string) =>
+    console.log(
+      JSON.stringify({
+        event: 'chat_run', outcome, model: MODEL, iterations, tools: toolNames,
+        lookups: lookups.length, applied: appliedTools.length, ...usage, durationMs: Date.now() - startedAt,
+      })
+    )
 
   // Keep last 20 turns to avoid context bloat
   const trimmed = messages.slice(-20)
@@ -213,23 +241,27 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
     content: m.content,
   }))
 
-  const appliedTools: AppliedTool[] = []
-  const lookups: ChatLookup[] = []
 
   try {
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const response = await client.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: systemPrompt,
+        system,
         tools: CHAT_TOOLS,
         messages: msgs,
       })
+      iterations++
+      usage.input += response.usage.input_tokens
+      usage.output += response.usage.output_tokens
+      usage.cacheRead += response.usage.cache_read_input_tokens ?? 0
+      usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0
 
       if (response.stop_reason === 'end_turn') {
         const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
         const reply = textBlock?.text ?? ''
         const result: ChatApiResponse = { reply, appliedTools, lookups }
+        logRun('end_turn')
         return ok(result)
       }
 
@@ -237,6 +269,7 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
         const toolBlocks = response.content.filter(
           (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
         )
+        toolNames.push(...toolBlocks.map((b) => b.name))
 
         // Read tools run here and feed real data back; write tools are only
         // recorded because the browser owns the stores they mutate. Independent
@@ -275,8 +308,10 @@ export async function handleEvent(event: HandlerEvent): Promise<HandlerResponse>
       appliedTools.length > 0
         ? `Done: ${appliedTools.map((t) => t.name).join(', ')} applied.`
         : 'Could not complete the request.'
+    logRun('iteration_cap')
     return ok({ reply: fallbackReply, appliedTools, lookups } satisfies ChatApiResponse)
   } catch (err) {
+    logRun('error')
     console.error('[chat] Anthropic API error:', err)
     const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
     return badGateway('Failed to reach AI service', { msg: detail })
