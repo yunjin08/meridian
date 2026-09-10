@@ -31,6 +31,32 @@ const context = {
   stockAccount: null,
   chart: { timeframe: '1h', lastCandle: null, rsi: null, macd: null, bb: null },
   alerts: [],
+  portfolio: null,
+  pnl: null,
+} satisfies DashboardContext
+
+const contextWithPnl = {
+  ...context,
+  portfolio: {
+    total: 1784.5, totalCurrency: 'USD', isMixedCurrency: false, change24hUsd: -8.15, change24hPercent: -0.45,
+    classes: [
+      { assetClass: 'crypto', value: 1587.32, currency: 'USDT', change24hPercent: -0.51, holdingCount: 11 },
+      { assetClass: 'stock', value: 197.18, currency: 'USD', change24hPercent: 0, holdingCount: 1 },
+      { assetClass: 'reit', value: 0, currency: 'USD', change24hPercent: null, holdingCount: 0 },
+    ],
+  },
+  pnl: {
+    total: -575.69, totalCurrency: 'USD',
+    crypto: {
+      net: -572.87, netSpent: 2159.85, currentValue: 1586.99, netPercent: -26.52,
+      daysAboveWater: 164, daysBelowWater: 306, lastCrossedOn: '2026-03-02', warnings: [],
+      assets: [{ asset: 'ETH', netSpent: 900, currentValue: 500, net: -400, netPercent: -44.4 }],
+    },
+    equities: {
+      currency: 'USD', unrealized: -2.82, realized: 0, net: -2.82,
+      positions: [{ ticker: 'AAPL', assetClass: 'stock', currentValue: 197.18, totalCost: 200, unrealized: -2.82, unrealizedPercent: -1.41 }],
+    },
+  },
 } satisfies DashboardContext
 
 function event(body: unknown): HandlerEvent {
@@ -116,6 +142,20 @@ describe('chat handler tool loop', () => {
     expect(body.lookups.map((l) => l.name)).toEqual(['get_candles'])
     expect(body.appliedTools.map((t) => t.name)).toEqual(['add_alert'])
     expect(createMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('puts the whole portfolio and its profit and loss in front of the model', async () => {
+    createMock.mockResolvedValueOnce(endTurn('ok'))
+    await handler(event({ messages: [{ role: 'user', content: 'how am I doing' }], context: contextWithPnl }))
+    const system = (createMock.mock.calls[0]?.[0] as { system: string }).system
+    expect(system).toContain('PORTFOLIO (as on the Overview tab): total 1,784.50 USD')
+    expect(system).toContain('crypto: 1,587.32 USDT = 89.0% of total, 11 holdings')
+    expect(system).toContain('PROFIT AND LOSS (all time, vs. what the user put in): -575.69 USD')
+    expect(system).toContain('Crypto: net -572.87 USDT (-26.52%) on 2,159.85 still invested')
+    expect(system).toContain('164 days above water, 306 below, last crossed 2026-03-02')
+    expect(system).toContain('ETH: net -400.00 (-44.40%), 900.00 in, 500.00 now')
+    expect(system).toContain('AAPL (stock): -2.82 (-1.41%), cost 200.00, worth 197.18')
+    expect(system).not.toContain('reit:')
   })
 
   it('stops at the iteration cap and still returns a reply', async () => {

@@ -9,8 +9,83 @@ import { useStockQuoteStore } from '@/store/stockQuoteStore'
 import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useNavigationStore } from '@/store/navigationStore'
 import { lastValue } from '@/lib/formatters'
+import { summarisePortfolio } from '@/lib/portfolioSummary'
+import { summarisePnl } from '@/lib/pnlSummary'
+import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
-import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool } from '@/types/chat'
+import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext } from '@/types/chat'
+
+// Enough rows for the model to name the biggest winners and losers without
+// pushing every dust holding into the prompt.
+const PNL_ROW_LIMIT = 8
+
+function buildPortfolioContext(): ChatPortfolioContext | null {
+  const balance = useBalanceStore.getState().balance
+  const cryptoHoldings = useCryptoHoldingsStore.getState().holdings
+  const prices = usePriceStore.getState().prices
+  const stocks = usePortfolioStore.getState().stocks
+  const quotes = useStockQuoteStore.getState().quotes
+  const { positions, account, fetchedAt } = useStockPositionsStore.getState()
+  if (!balance && cryptoHoldings.length === 0 && stocks.length === 0) return null
+
+  const summary = summarisePortfolio({
+    balance, cryptoHoldings, prices, stocks, quotes, positions, account, positionsFetchedAt: fetchedAt,
+  })
+  return {
+    total: summary.total,
+    totalCurrency: summary.totalCurrency,
+    isMixedCurrency: summary.isMixedCurrency,
+    change24hUsd: summary.change24hUsd,
+    change24hPercent: summary.change24hPercent,
+    classes: (['crypto', 'stock', 'reit'] as const).map((assetClass) => {
+      const c = summary.classes[assetClass]
+      return { assetClass, value: c.value, currency: c.currency, change24hPercent: c.change24hPercent, holdingCount: c.holdingCount }
+    }),
+  }
+}
+
+function buildPnlContext(): ChatPnlContext | null {
+  const cryptoPnl = useCryptoPnlStore.getState().data
+  const { positions, account } = useStockPositionsStore.getState()
+  const stocks = usePortfolioStore.getState().stocks
+  const pnl = summarisePnl({ cryptoPnl, positions, account, stocks })
+  if (pnl.total === null) return null
+
+  return {
+    total: pnl.total,
+    totalCurrency: pnl.totalCurrency,
+    crypto: pnl.crypto
+      ? {
+          net: pnl.crypto.net,
+          netSpent: pnl.crypto.netSpent,
+          currentValue: pnl.crypto.currentValue,
+          netPercent: pnl.crypto.netPercent,
+          daysAboveWater: pnl.crypto.history.daysAboveWater,
+          daysBelowWater: pnl.crypto.history.daysBelowWater,
+          lastCrossedOn: pnl.crypto.history.lastCrossedOn,
+          warnings: pnl.crypto.warnings,
+          assets: pnl.crypto.assets.slice(0, PNL_ROW_LIMIT).map((a) => ({
+            asset: a.asset, netSpent: a.netSpent, currentValue: a.currentValue, net: a.net, netPercent: a.netPercent,
+          })),
+        }
+      : null,
+    equities: pnl.equities
+      ? {
+          currency: pnl.equities.currency,
+          unrealized: pnl.equities.unrealized,
+          realized: pnl.equities.realized,
+          net: pnl.equities.net,
+          positions: [...pnl.equities.stocks.positions, ...pnl.equities.reits.positions]
+            .sort((a, b) => Math.abs(b.unrealized) - Math.abs(a.unrealized))
+            .slice(0, PNL_ROW_LIMIT)
+            .map((p) => ({
+              ticker: p.ticker, assetClass: p.assetClass, currentValue: p.currentValue, totalCost: p.totalCost,
+              unrealized: p.unrealized, unrealizedPercent: p.unrealizedPercent,
+            })),
+        }
+      : null,
+  }
+}
 
 function formatCondition(condition: AlertCondition): string {
   switch (condition.type) {
@@ -104,6 +179,8 @@ function buildContext(): DashboardContext {
       triggered: a.triggered,
       triggeredAt: a.triggeredAt,
     })),
+    portfolio: buildPortfolioContext(),
+    pnl: buildPnlContext(),
   }
 }
 

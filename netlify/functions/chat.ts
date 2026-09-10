@@ -32,7 +32,14 @@ the dollar or the macro backdrop; get_crypto_market for sentiment, fear and gree
 or leverage; get_candles for any symbol or timeframe that is not the active chart. Never state such
 figures from memory: your training data is stale. If a lookup reports data as unavailable, say so
 plainly instead of guessing. Cite the observation date when you quote a macro figure. If a question
-needs data none of these tools provide (e.g. gold, equities indices, news), say you cannot look it up.
+needs data none of these tools provide (e.g. gold, commodities, news headlines), say you cannot look it up.
+Use get_stock_quote for any stock or ETF price you do not already have, including SPY/QQQ/DIA for the market.
+
+You know this user's whole portfolio and profit and loss (below). Speak to their position, not in
+generalities: when they ask about the market, say what it means for what they hold; when they are losing
+money, say so plainly and name where the loss sits; when they ask whether to buy, lay out the data and
+their current exposure and leave the decision to them. Never invent a P&L figure; every number you quote
+about their portfolio must come from the data below or from a tool result.
 
 === LIVE DASHBOARD DATA ===
 
@@ -115,6 +122,39 @@ PRICE (${ctx.activeSymbol}):
   if (ctx.chart.bb != null) {
     const b = ctx.chart.bb
     prompt += `\n- Bollinger Bands: upper ${fmtPrice(b.upper)} | middle ${fmtPrice(b.middle)} | lower ${fmtPrice(b.lower)}`
+  }
+
+  // Whole-portfolio view, same numbers as the Overview tab
+  const p = ctx.portfolio
+  if (p) {
+    const mixed = p.isMixedCurrency ? ' (mixed currencies, crypto in USDT and equities in account currency)' : ''
+    prompt += `\n\nPORTFOLIO (as on the Overview tab): total ${fmt(p.total)} ${p.totalCurrency}${mixed}, 24h ${p.change24hUsd >= 0 ? '+' : ''}${fmt(p.change24hUsd)} (${fmtPct(p.change24hPercent)})`
+    for (const c of p.classes) {
+      if (c.holdingCount === 0 && c.value === 0) continue
+      const share = p.total > 0 ? ` = ${fmt((c.value / p.total) * 100, 1)}% of total` : ''
+      prompt += `\n- ${c.assetClass}: ${fmt(c.value)} ${c.currency}${share}, ${c.holdingCount} holdings, 24h ${fmtPct(c.change24hPercent)}`
+    }
+  }
+
+  const pnl = ctx.pnl
+  if (pnl) {
+    const sign = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n)}`
+    prompt += `\n\nPROFIT AND LOSS (all time, vs. what the user put in): ${pnl.total == null ? 'not loaded' : `${sign(pnl.total)} ${pnl.totalCurrency}`}`
+    const c = pnl.crypto
+    if (c) {
+      prompt += `\n- Crypto: net ${sign(c.net)} USDT (${fmtPct(c.netPercent)}) on ${fmt(c.netSpent)} still invested, worth ${fmt(c.currentValue)} now. ${c.daysAboveWater} days above water, ${c.daysBelowWater} below${c.lastCrossedOn ? `, last crossed ${c.lastCrossedOn}` : ''}.`
+      for (const a of c.assets) {
+        prompt += `\n  - ${a.asset}: net ${a.net == null ? 'unknown' : sign(a.net)} (${fmtPct(a.netPercent)}), ${fmt(a.netSpent)} in, ${a.currentValue == null ? 'unpriced' : `${fmt(a.currentValue)} now`}`
+      }
+      for (const w of c.warnings) prompt += `\n  - Note: ${w}`
+    }
+    const e = pnl.equities
+    if (e) {
+      prompt += `\n- Stocks/REITs (Trading 212, ${e.currency}): unrealized ${sign(e.unrealized)}, realized ${sign(e.realized)}, net ${sign(e.net)}`
+      for (const pos of e.positions) {
+        prompt += `\n  - ${pos.ticker} (${pos.assetClass}): ${sign(pos.unrealized)} (${fmtPct(pos.unrealizedPercent)}), cost ${fmt(pos.totalCost)}, worth ${fmt(pos.currentValue)}`
+      }
+    }
   }
 
   // Alerts
