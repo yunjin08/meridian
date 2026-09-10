@@ -103,8 +103,8 @@ describe('fetchMacroSnapshot', () => {
     expect(byId['FEDFUNDS']).toMatchObject({ value: 4.33, previous: 4.3, date: '2026-08-01' })
     expect(byId['DGS10']).toMatchObject({ value: null, previous: null, date: null })
     expect(snap.cpiYoY.value).toBeCloseTo((300 / 288 - 1) * 100, 2)
-    // 6 regular series + CPI
-    expect(fetchMock).toHaveBeenCalledTimes(7)
+    // 10 regular series + CPI
+    expect(fetchMock).toHaveBeenCalledTimes(11)
   })
 
   it('does not cache a snapshot where every series failed', async () => {
@@ -119,7 +119,7 @@ describe('fetchMacroSnapshot', () => {
     fetchMock.mockResolvedValue(jsonResponse({ observations: [{ date: '2026-08-01', value: '1' }] }))
     await fetchMacroSnapshot()
     await fetchMacroSnapshot()
-    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(fetchMock).toHaveBeenCalledTimes(11)
   })
 })
 

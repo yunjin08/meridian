@@ -85,6 +85,12 @@ export const FRED_SERIES: readonly FredSeriesSpec[] = [
   { id: 'DGS10', label: '10y Treasury yield', unit: '%', limit: 6 },
   { id: 'T10Y2Y', label: '10y minus 2y spread', unit: 'pp', limit: 6 },
   { id: 'DTWEXBGS', label: 'Broad dollar index', unit: 'index', limit: 6 },
+  // Equity context: daily closes, published after the session, so during
+  // trading hours these are yesterday's close. Live quotes come from Finnhub.
+  { id: 'SP500', label: 'S&P 500', unit: 'index', limit: 6 },
+  { id: 'NASDAQCOM', label: 'Nasdaq Composite', unit: 'index', limit: 6 },
+  { id: 'DJIA', label: 'Dow Jones Industrial', unit: 'index', limit: 6 },
+  { id: 'VIXCLS', label: 'VIX volatility index', unit: 'index', limit: 6 },
 ]
 
 // 14 observations: latest and prior month, each with its own year-earlier value.
