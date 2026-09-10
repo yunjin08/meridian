@@ -10,6 +10,10 @@ const MODEL = 'claude-haiku-4-5-20251001'
 // A real question can need a lookup and then a write (read the 4h Bollinger
 // band, then set an alert on it), so the loop allows one more round than before.
 const MAX_ITERATIONS = 5
+// A per-holding breakdown of a dozen positions runs past 1024 tokens. When the
+// cap is hit anyway, the text written so far is the reply, not a failure.
+const MAX_OUTPUT_TOKENS = 2048
+const CUT_SHORT_NOTE = '\n\n(Reply cut short at the length limit. Ask me to continue for the rest.)'
 
 // ---------------------------------------------------------------------------
 // System prompt builder
@@ -245,7 +249,7 @@ async function runTurn(
       // starts writing, including any preface before a tool call.
       const stream = client.messages.stream({
         model: MODEL,
-        max_tokens: 1024,
+        max_tokens: MAX_OUTPUT_TOKENS,
         system,
         tools: CHAT_TOOLS,
         messages: msgs,
@@ -319,7 +323,13 @@ async function runTurn(
         continue
       }
 
-      // max_tokens or other stop: return whatever we have
+      if (response.stop_reason === 'max_tokens' && said.length > 0) {
+        hooks.onDelta?.(CUT_SHORT_NOTE)
+        logRun('max_tokens')
+        return { reply: said.join('\n\n') + CUT_SHORT_NOTE, appliedTools, lookups }
+      }
+
+      // Any other stop: return whatever we have
       break
     }
 

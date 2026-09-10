@@ -174,6 +174,19 @@ describe('chat handler tool loop', () => {
     expect(system).not.toContain('reit:')
   })
 
+  it('keeps the text already written when the output cap is hit', async () => {
+    createMock.mockResolvedValueOnce({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'BTC: down 21%. ETH: down 30%. SOL' }],
+      usage,
+    })
+    const res = await handler(ask('break down every holding'))
+    const body = JSON.parse(res?.body ?? '{}') as ChatApiResponse
+    expect(body.reply).toContain('BTC: down 21%. ETH: down 30%. SOL')
+    expect(body.reply).toMatch(/cut short/)
+    expect((createMock.mock.calls[0]?.[0] as { max_tokens: number }).max_tokens).toBe(2048)
+  })
+
   it('stops at the iteration cap and still returns a reply', async () => {
     vi.mocked(executeReadTool).mockResolvedValue({
       content: 'data',
