@@ -261,7 +261,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 3. **One combined candles endpoint.** Indicators are calculated server-side in the same `candles.ts` function call. There is no separate `/api/indicators` endpoint — that would require a second Binance kline fetch.
 
-4. **Tax records and passkey credentials live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings` and `webauthn_credentials` are persisted server-side, and only through `netlify/functions/tax-*.ts` and `webauthn-*.ts` using the service role key. Alerts and the stock watchlist remain in localStorage. Adding another table is an architecture decision, not a convenience.
+4. **Tax records and passkey credentials live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings` and `webauthn_credentials` are persisted server-side, and only through `netlify/functions/tax-*.ts` and `webauthn-*.ts` using the service role key. Alerts, the stock watchlist and the chat transcript remain in localStorage. Adding another table is an architecture decision, not a convenience.
 
 5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
@@ -286,7 +286,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 ## Known Limitations (Phase 1)
 
 - Alerts only fire while the browser tab is open. JavaScript stops when the tab is closed.
-- Alert definitions are localStorage-only — not synced across devices or browsers.
+- Alert definitions and the chat transcript are localStorage-only, not synced across devices or browsers.
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
 - Deadline notifications fire only while the tab is open; the once-per-threshold markers are per browser.

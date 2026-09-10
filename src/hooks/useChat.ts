@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { usePriceStore } from '@/store/priceStore'
 import { useBalanceStore } from '@/store/balanceStore'
 import { useChartStore } from '@/store/chartStore'
@@ -12,6 +12,7 @@ import { lastValue } from '@/lib/formatters'
 import { summarisePortfolio } from '@/lib/portfolioSummary'
 import { summarisePnl } from '@/lib/pnlSummary'
 import { findDuplicateAlert } from '@/lib/alertDedupe'
+import { loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
 import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatStreamEvent } from '@/types/chat'
@@ -308,10 +309,15 @@ export interface ChatDraft {
 }
 
 export function useChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Per-browser, like alerts and the watchlist: a reload keeps the conversation.
+  const [messages, setMessages] = useState<ChatMessage[]>(loadChatHistory)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<ChatDraft | null>(null)
+
+  useEffect(() => {
+    saveChatHistory(messages)
+  }, [messages])
 
   // A failed turn stays in the history as a marker. Without it the model sees
   // an unanswered request on the next turn and has claimed to have done the work.
