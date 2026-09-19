@@ -22,6 +22,8 @@ export const CANDLE_REFRESH_INTERVAL_MS = 60_000
 export const STOCK_QUOTE_POLL_INTERVAL_MS = 30_000
 // Trading 212 limits: positions 1 req/s, account summary 1 req/5s (per account)
 export const STOCK_POSITIONS_POLL_INTERVAL_MS = 30_000
+// Matches the cron's cadence, so a trigger it set shows up within one poll
+export const ALERT_POLL_INTERVAL_MS = 60_000
 // Crypto P&L rebuilds trade and fiat history from Binance; poll rarely.
 export const CRYPTO_PNL_POLL_INTERVAL_MS = 5 * 60 * 1_000
 

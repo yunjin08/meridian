@@ -187,7 +187,7 @@ function buildContext(): DashboardContext {
 }
 
 // Parse and apply tool calls returned by the backend to local stores
-function applyToolResults(toolCalls: AppliedTool[]) {
+async function applyToolResults(toolCalls: AppliedTool[]): Promise<void> {
   const alertStore = useAlertStore.getState()
   const portfolioStore = usePortfolioStore.getState()
 
@@ -216,17 +216,22 @@ function applyToolResults(toolCalls: AppliedTool[]) {
         }
         // A retried turn can call add_alert twice for one request.
         if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
-        alertStore.addAlert(input.label, input.symbol.toUpperCase(), condition, input.autoReset ?? false)
+        await alertStore.addAlert({
+          label: input.label,
+          symbol: input.symbol.toUpperCase(),
+          condition,
+          autoReset: input.autoReset ?? false,
+        })
         break
       }
       case 'remove_alert': {
         const { id } = tool.input as { id: string }
-        alertStore.removeAlert(id)
+        await alertStore.removeAlert(id)
         break
       }
       case 'toggle_alert': {
         const { id } = tool.input as { id: string }
-        alertStore.toggleActive(id)
+        await alertStore.toggleActive(id)
         break
       }
       case 'add_symbol': {
@@ -369,7 +374,13 @@ export function useChat() {
           ? await readStream(res.body, setDraft)
           : ((await res.json()) as ChatApiResponse)
 
-        if (result.appliedTools.length > 0) applyToolResults(result.appliedTools)
+        if (result.appliedTools.length > 0) {
+          try {
+            await applyToolResults(result.appliedTools)
+          } catch (err) {
+            console.error('[useChat] failed to apply tool result:', err)
+          }
+        }
 
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),

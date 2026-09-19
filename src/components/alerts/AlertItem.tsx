@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAlertStore } from '@/store/alertStore'
 import { formatTimestamp } from '@/lib/formatters'
 import type { Alert } from '@/types/alert'
@@ -23,6 +24,11 @@ export function AlertItem({ alert }: AlertItemProps) {
   const toggleActive = useAlertStore((s) => s.toggleActive)
   const removeAlert = useAlertStore((s) => s.removeAlert)
   const resetAlert = useAlertStore((s) => s.resetAlert)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  function onError(err: unknown): void {
+    setActionError(err instanceof Error ? err.message : 'Action failed')
+  }
 
   return (
     <div
@@ -45,12 +51,13 @@ export function AlertItem({ alert }: AlertItemProps) {
             Triggered {formatTimestamp(alert.triggeredAt)}
           </div>
         )}
+        {actionError !== null && <div className="text-bear-red mt-0.5">{actionError}</div>}
       </div>
 
       <div className="flex items-center gap-1.5 flex-shrink-0">
         {alert.triggered && (
           <button
-            onClick={() => resetAlert(alert.id)}
+            onClick={() => resetAlert(alert.id).catch(onError)}
             className="text-text-muted hover:text-text-primary px-1.5 py-0.5 rounded border border-panel-border hover:border-text-muted/50 transition-colors"
             title="Reset alert"
           >
@@ -58,7 +65,7 @@ export function AlertItem({ alert }: AlertItemProps) {
           </button>
         )}
         <button
-          onClick={() => toggleActive(alert.id)}
+          onClick={() => toggleActive(alert.id).catch(onError)}
           className={[
             'px-1.5 py-0.5 rounded border transition-colors text-xs font-mono',
             alert.active
@@ -70,7 +77,7 @@ export function AlertItem({ alert }: AlertItemProps) {
           {alert.active ? 'ON' : 'OFF'}
         </button>
         <button
-          onClick={() => removeAlert(alert.id)}
+          onClick={() => removeAlert(alert.id).catch(onError)}
           className="text-bear-red/60 hover:text-bear-red px-1.5 py-0.5 rounded border border-transparent hover:border-bear-red/30 transition-colors"
           title="Delete alert"
         >

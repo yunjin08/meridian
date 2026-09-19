@@ -22,11 +22,10 @@ export function AlertList() {
         </div>
       )}
 
-      {alerts.some((a) => a.triggered) && (
-        <div className="mt-2 text-xs text-text-muted/60">
-          Keep this tab open to receive alerts. Browser tab must be open for notifications to fire.
-        </div>
-      )}
+      <div className="mt-2 text-xs text-text-muted/60">
+        Crypto alerts email you within a minute even when this tab is closed. Stock alerts and instant
+        in-browser notifications need this tab open.
+      </div>
     </div>
   )
 }

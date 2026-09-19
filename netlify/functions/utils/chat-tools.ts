@@ -16,7 +16,9 @@ const WRITE_TOOLS: Anthropic.Tool[] = [
   {
     name: 'add_alert',
     description: `Create a new alert for any asset in the dashboard (crypto or stock).
-Alerts fire browser notifications when the condition is met.
+Alerts fire browser notifications when the condition is met. Crypto alerts (symbols ending in USDT) also
+email the owner within a minute even if no tab is open, evaluated by a server-side cron. Stock alerts only
+fire the browser notification, since the cron only reaches Binance prices; mention this if asked about a stock alert.
 Use the exact symbol from the dashboard, e.g. BTCUSDT for Bitcoin, ETHUSDT for Ethereum, AAPL for Apple stock.
 For price conditions, use USD (stocks) or USDT (crypto).`,
     input_schema: {

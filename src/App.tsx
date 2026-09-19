@@ -10,6 +10,7 @@ import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket'
 import { useCandles } from '@/hooks/useCandles'
 import { useBalance } from '@/hooks/useBalance'
 import { useAlertEvaluator } from '@/hooks/useAlertEvaluator'
+import { useAlertData } from '@/hooks/useAlertData'
 import { useStockQuotes } from '@/hooks/useStockQuotes'
 import { useStockPositions } from '@/hooks/useStockPositions'
 import { useCryptoPnl } from '@/hooks/useCryptoPnl'
@@ -24,6 +25,7 @@ function AppInner() {
   useBinanceWebSocket()
   useCandles()
   useBalance()
+  useAlertData()
   useAlertEvaluator()
   useStockQuotes()
   useStockPositions()
