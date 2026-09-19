@@ -79,6 +79,11 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `utils/webauthn-repo.ts` | — | — | Credential CRUD against Supabase |
 | `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
 | `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
+| `alerts.ts` | `GET/POST/PUT/DELETE /api/alerts` | Session | Alert CRUD, plus PUT patches for active/reset/trigger |
+| `alerts-cron.ts` | scheduled, every minute | none (Netlify-invoked) | Evaluates active alerts against fresh Binance data; emails on a fresh trigger |
+| `utils/alert-repo.ts` | — | — | Alert CRUD, plus cron-only reads/writes (`listActiveAlerts`, `updateLastPrice`) against Supabase |
+| `utils/alert-validation.ts` | — | — | Request body/param validation for the alerts handler |
+| `utils/email.ts` | — | — | Resend REST wrapper; fixed sender/recipient, no-ops (logs) if RESEND_API_KEY is missing |
 | `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
 | `utils/supabase-client.ts` | — | — | Supabase service-role client + row types |
 | `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Supabase |
@@ -96,7 +101,7 @@ src/
 │   ├── binance.ts           Raw Binance API shapes (tuple types, no `any`)
 │   ├── candle.ts            Candle, IndicatorData, CandlesResponse
 │   ├── account.ts           AccountBalance
-│   ├── alert.ts             Alert, AlertCondition discriminated union
+│   ├── alert.ts             Alert, AlertInput, AlertCondition discriminated union
 │   ├── tax.ts               TaxIncomeEntry, TaxFiling, TaxPeriod, TaxPeriodSummary
 │   ├── webauthn.ts          PasskeyCredential (crosses the /api/webauthn-* boundary)
 │   ├── chat.ts              DashboardContext, write/read tool names, ChatLookup, ChatApiResponse
@@ -106,13 +111,14 @@ src/
 │   ├── priceStore.ts        Live price, 24h stats, WS status, lastTickAt
 │   ├── chartStore.ts        Active timeframe, candles[], indicators, isLoading
 │   ├── balanceStore.ts      BTC/USDT balances, fetchedAt
-│   ├── alertStore.ts        Alerts[] — persisted to localStorage via Zustand persist
+│   ├── alertStore.ts        Alerts[] — server-backed (Supabase via /api/alerts), plus a client-only cross-detection map
 │   └── taxStore.ts          entries[], filings[], selectedYear, load/add/edit/remove/markFiled/unmarkFiled
 ├── hooks/                   Side-effect hooks (one concern each)
 │   ├── useBinanceWebSocket.ts  WS lifecycle, stream mgmt, exponential backoff reconnect
 │   ├── useCandles.ts           Fetch candles+indicators, debounced on timeframe change
 │   ├── useBalance.ts           Poll /api/balance every 30s, pause when tab hidden
 │   ├── useAlertEvaluator.ts    Subscribe to stores, evaluate conditions, fire notifications
+│   ├── useAlertData.ts         Load alerts on mount, poll every 60s so cron-set triggers show up
 │   ├── useTaxData.ts           Loads tax entries/filings once on mount
 │   ├── useTaxDeadlines.ts      Next actionable tax period + once-per-threshold notifications
 │   └── usePortfolioSummary.ts  Combines crypto/stock/REIT stores into one PortfolioSummary
@@ -128,7 +134,10 @@ src/
 └── lib/                     Pure utilities (no React)
     ├── formatters.ts         Price/percent/BTC formatting, lastValue() helper
     ├── notifications.ts      Browser Notification API wrapper + permission flow
-    ├── localStorage.ts       Manual read/write helpers (Zustand persist handles alerts)
+    ├── localStorage.ts       Manual localStorage read/write helpers
+    ├── alertEvaluation.ts     Alias-free condition logic shared by useAlertEvaluator and the alerts cron
+    ├── alertsApi.ts           Fetch wrapper for /api/alerts
+    ├── alertMigration.ts      One-time pull of pre-migration alerts out of localStorage
     ├── isoDate.ts             Alias-free ISO date parsing/formatting shared with functions
     ├── tax.ts                 Tax period math: weekend rollover, cumulative credit, status, next actionable
     ├── taxNotifications.ts    Decides whether a deadline notification fires today
@@ -144,7 +153,7 @@ src/
 
 ### State management
 
-Zustand — not Context — because live price updates ~1/sec and multiple components subscribe independently. Zustand's slice subscriptions prevent waterfall re-renders. Alert store uses `persist` middleware for zero-boilerplate localStorage sync.
+Zustand — not Context — because live price updates ~1/sec and multiple components subscribe independently. Zustand's slice subscriptions prevent waterfall re-renders. Alert store is server-backed (not `persist`) so the alerts cron can evaluate the same records the browser sees.
 
 Hooks (`App.tsx`) call `usePriceStore.getState()` / `store.subscribe()` directly in non-React contexts (alert evaluator) to avoid creating reactive subscriptions for side effects.
 
@@ -193,6 +202,7 @@ WEBAUTHN_RP_ID=...              # bare domain, e.g. meridian.netlify.app (localh
 WEBAUTHN_ORIGIN=...             # full origin, e.g. https://meridian.netlify.app
 FRED_API_KEY=...                # free; without it the chat says macro data is not configured
 COINGECKO_API_KEY=...           # optional demo key, raises the keyless 30 req/min limit
+RESEND_API_KEY=...              # sends alert-triggered emails; missing = alerts-cron logs and skips the send
 ```
 
 `ANTHROPIC_API_KEY` is not set by hand: Netlify's AI Gateway injects it (see
@@ -261,7 +271,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 3. **One combined candles endpoint.** Indicators are calculated server-side in the same `candles.ts` function call. There is no separate `/api/indicators` endpoint — that would require a second Binance kline fetch.
 
-4. **Tax records and passkey credentials live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings` and `webauthn_credentials` are persisted server-side, and only through `netlify/functions/tax-*.ts` and `webauthn-*.ts` using the service role key. Alerts, the stock watchlist and the chat transcript remain in localStorage. Adding another table is an architecture decision, not a convenience.
+4. **Tax records, passkey credentials, and alerts live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings`, `webauthn_credentials` and `alerts` are persisted server-side, and only through `netlify/functions/tax-*.ts`, `webauthn-*.ts` and `alerts.ts`/`alerts-cron.ts` using the service role key. Alerts moved off localStorage specifically so the `alerts-cron.ts` scheduled function can evaluate them and email the owner without a browser tab open — that is the one exception to "only tax and passkeys are stateful," made because a client-only store can't be read by a cron. The stock watchlist and the chat transcript remain in localStorage. Adding another table is an architecture decision, not a convenience.
 
 5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
@@ -285,8 +295,8 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 ## Known Limitations (Phase 1)
 
-- Alerts only fire while the browser tab is open. JavaScript stops when the tab is closed.
-- Alert definitions and the chat transcript are localStorage-only, not synced across devices or browsers.
+- Crypto alerts email regardless of whether a tab is open (via the `alerts-cron.ts` scheduled function, ~1 minute latency); stock/REIT alerts and the instant in-browser notification still require an open tab, since the cron only reaches Binance data. See `docs/alerts.md`.
+- Alerts are synced across devices via Supabase, but the chat transcript remains localStorage-only, not synced across devices or browsers.
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
 - Deadline notifications fire only while the tab is open; the once-per-threshold markers are per browser.
