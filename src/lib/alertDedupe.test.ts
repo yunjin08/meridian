@@ -5,7 +5,7 @@ import type { Alert } from '@/types/alert'
 function alert(symbol: string, condition: Alert['condition']): Alert {
   return {
     id: crypto.randomUUID(), label: 'x', symbol, condition, active: true, triggered: false,
-    triggeredAt: null, createdAt: 0, lastEvaluatedPrice: null, autoReset: false, autoResetAt: null,
+    triggeredAt: null, createdAt: 0, autoReset: false,
   }
 }
 

@@ -30,9 +30,15 @@ export interface Alert {
   condition: AlertCondition
   active: boolean
   triggered: boolean
-  triggeredAt: number | null
-  createdAt: number
-  lastEvaluatedPrice: number | null  // tracks previous price for cross detection
-  autoReset: boolean                 // re-arms after 5-minute cooldown (for crossing alerts)
-  autoResetAt: number | null         // timestamp when auto-reset fires
+  triggeredAt: number | null         // Unix ms, set server-side by the cron when it fires
+  createdAt: number                  // Unix ms
+  autoReset: boolean                 // re-arms after a cooldown (for crossing alerts)
+}
+
+/** The fields the client sends to create an alert; the server assigns the rest. */
+export interface AlertInput {
+  label: string
+  symbol: string
+  condition: AlertCondition
+  autoReset: boolean
 }

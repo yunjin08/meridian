@@ -4,82 +4,15 @@ import { useChartStore } from '@/store/chartStore'
 import { useAlertStore } from '@/store/alertStore'
 import { useNavigationStore } from '@/store/navigationStore'
 import { sendNotification } from '@/lib/notifications'
-import { lastValue, formatPrice, formatNumber } from '@/lib/formatters'
+import { evaluateIndicatorAlert, evaluatePriceAlert } from '@/lib/alertEvaluation'
 import { ALERT_AUTO_RESET_COOLDOWN_MS } from '@/constants'
-import type { Alert } from '@/types/alert'
-import type { IndicatorData } from '@/types/candle'
-
-function evaluatePriceAlert(alert: Alert, price: number): { triggered: boolean; detail: string } {
-  const { condition } = alert
-  if (condition.type === 'price_above') {
-    return {
-      triggered: price > condition.threshold,
-      detail: `${alert.symbol} price ${formatPrice(price)} > ${formatPrice(condition.threshold)}`,
-    }
-  }
-  if (condition.type === 'price_below') {
-    return {
-      triggered: price < condition.threshold,
-      detail: `${alert.symbol} price ${formatPrice(price)} < ${formatPrice(condition.threshold)}`,
-    }
-  }
-  if (condition.type === 'price_crosses') {
-    const prev = alert.lastEvaluatedPrice
-    if (prev === null) return { triggered: false, detail: '' }
-    const crossed =
-      (prev < condition.threshold && price >= condition.threshold) ||
-      (prev > condition.threshold && price <= condition.threshold)
-    return {
-      triggered: crossed,
-      detail: `${alert.symbol} crossed $${condition.threshold.toLocaleString()} (now ${formatPrice(price)})`,
-    }
-  }
-  return { triggered: false, detail: '' }
-}
-
-function evaluateIndicatorAlert(
-  alert: Alert,
-  indicators: IndicatorData
-): { triggered: boolean; detail: string } {
-  const { condition } = alert
-  if (condition.type === 'rsi_above' || condition.type === 'rsi_below') {
-    const rsi = lastValue(indicators.rsi)
-    if (rsi === null) return { triggered: false, detail: '' }
-    if (condition.type === 'rsi_above') {
-      return {
-        triggered: rsi > condition.threshold,
-        detail: `${alert.symbol} RSI ${formatNumber(rsi, 1)} > ${condition.threshold}`,
-      }
-    }
-    return {
-      triggered: rsi < condition.threshold,
-      detail: `${alert.symbol} RSI ${formatNumber(rsi, 1)} < ${condition.threshold}`,
-    }
-  }
-  if (condition.type === 'macd_crossover' || condition.type === 'macd_crossunder') {
-    const macd = lastValue(indicators.macd.macdLine)
-    const signal = lastValue(indicators.macd.signalLine)
-    if (macd === null || signal === null) return { triggered: false, detail: '' }
-    if (condition.type === 'macd_crossover') {
-      return {
-        triggered: macd > signal,
-        detail: `${alert.symbol} MACD crossover (${formatNumber(macd, 2)} > ${formatNumber(signal, 2)})`,
-      }
-    }
-    return {
-      triggered: macd < signal,
-      detail: `${alert.symbol} MACD crossunder (${formatNumber(macd, 2)} < ${formatNumber(signal, 2)})`,
-    }
-  }
-  return { triggered: false, detail: '' }
-}
 
 export function useAlertEvaluator() {
   useEffect(() => {
     // Subscribe to ALL price changes — evaluate each alert against its symbol's price
     const unsubPrice = usePriceStore.subscribe((state) => {
       const { prices } = state
-      const { alerts, markTriggered, updateLastEvaluatedPrice, resetAlert } =
+      const { alerts, clientLastPrice, markTriggered, updateLastEvaluatedPrice, resetAlert } =
         useAlertStore.getState()
 
       for (const alert of alerts) {
@@ -90,7 +23,7 @@ export function useAlertEvaluator() {
           alert.triggeredAt !== null &&
           Date.now() - alert.triggeredAt > ALERT_AUTO_RESET_COOLDOWN_MS
         ) {
-          resetAlert(alert.id)
+          void resetAlert(alert.id)
         }
 
         const priceData = prices[alert.symbol]
@@ -109,7 +42,8 @@ export function useAlertEvaluator() {
           alert.condition.type === 'price_below' ||
           alert.condition.type === 'price_crosses'
         ) {
-          const { triggered, detail } = evaluatePriceAlert(alert, price)
+          const prevPrice = clientLastPrice[alert.id] ?? null
+          const { triggered, detail } = evaluatePriceAlert(alert, price, prevPrice)
           if (triggered) {
             markTriggered(alert.id)
             sendNotification(`${alert.symbol} Alert`, detail, alert.id)
