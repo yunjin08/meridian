@@ -55,6 +55,37 @@ export type WebAuthnCredentialInsert = {
   device_label: string
 }
 
+export type AlertRow = {
+  id: string
+  label: string
+  symbol: string
+  condition_type: string
+  threshold: number | string | null   // numeric columns arrive as strings
+  active: boolean
+  triggered: boolean
+  triggered_at: string | null
+  auto_reset: boolean
+  last_price: number | string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AlertInsert = {
+  label: string
+  symbol: string
+  condition_type: string
+  threshold: number | null
+  active: boolean
+  triggered: boolean
+  auto_reset: boolean
+}
+
+export type AlertUpdate = Partial<AlertInsert> & {
+  triggered_at?: string | null
+  last_price?: number | null
+  updated_at?: string
+}
+
 // Hand-written schema type so queries are typed without generating types.
 export interface Database {
   public: {
@@ -75,6 +106,12 @@ export interface Database {
         Row: WebAuthnCredentialRow
         Insert: WebAuthnCredentialInsert
         Update: Partial<WebAuthnCredentialInsert> & { last_used_at?: string }
+        Relationships: []
+      }
+      alerts: {
+        Row: AlertRow
+        Insert: AlertInsert
+        Update: AlertUpdate
         Relationships: []
       }
     }
