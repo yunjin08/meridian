@@ -45,7 +45,7 @@ export function useAlertEvaluator() {
           const prevPrice = clientLastPrice[alert.id] ?? null
           const { triggered, detail } = evaluatePriceAlert(alert, price, prevPrice)
           if (triggered) {
-            markTriggered(alert.id)
+            markTriggered(alert.id, detail)
             sendNotification(`${alert.symbol} Alert`, detail, alert.id)
           }
           updateLastEvaluatedPrice(alert.id, price)
@@ -74,7 +74,7 @@ export function useAlertEvaluator() {
         ) {
           const { triggered, detail } = evaluateIndicatorAlert(alert, indicators)
           if (triggered) {
-            markTriggered(alert.id)
+            markTriggered(alert.id, detail)
             sendNotification(`${alert.symbol} Alert`, detail, alert.id)
           }
         }

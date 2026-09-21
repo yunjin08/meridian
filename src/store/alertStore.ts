@@ -18,7 +18,7 @@ interface AlertState {
   removeAlert: (id: string) => Promise<void>
   toggleActive: (id: string) => Promise<void>
   resetAlert: (id: string) => Promise<void>
-  markTriggered: (id: string) => void
+  markTriggered: (id: string, detail: string) => void
   updateLastEvaluatedPrice: (id: string, price: number) => void
 }
 
@@ -94,15 +94,16 @@ export const useAlertStore = create<AlertState>()((set, get) => {
 
     // Fired from useAlertEvaluator for instant in-tab feedback. Updates local
     // state immediately for the notification/UI, then persists in the
-    // background so the next cron run sees it already triggered and doesn't
-    // send a duplicate email. A failed persist just means the cron (which
-    // independently evaluates the same condition) catches it within a minute.
-    markTriggered: (id) => {
+    // background. The server sends the email itself on this call (mirroring
+    // the cron's own trigger path) — with a tab open, the browser almost
+    // always notices before the cron's next minute-tick, so this is usually
+    // the only place the email gets sent.
+    markTriggered: (id, detail) => {
       const triggeredAt = Date.now()
       set({
         alerts: get().alerts.map((a) => (a.id === id ? { ...a, triggered: true, triggeredAt } : a)),
       })
-      void api.triggerAlert(id).catch((err: unknown) => {
+      void api.triggerAlert(id, detail).catch((err: unknown) => {
         console.error('[alertStore] failed to persist trigger, cron will catch it:', err)
       })
     },

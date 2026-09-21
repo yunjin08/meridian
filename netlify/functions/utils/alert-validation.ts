@@ -85,12 +85,21 @@ export function parseAlertInput(body: unknown): Validation<AlertInput> {
   return { ok: true, value: { label, symbol, condition: condition.value, autoReset } }
 }
 
-export type AlertPatch = { active: boolean } | { reset: true } | { trigger: true }
+export type AlertPatch = { active: boolean } | { reset: true } | { trigger: true; detail: string | null }
+
+const MAX_DETAIL_LENGTH = 300
 
 export function parsePatchInput(body: unknown): Validation<AlertPatch> {
   if (!isRecord(body)) return invalid('body must be a JSON object')
   if (typeof body['active'] === 'boolean') return { ok: true, value: { active: body['active'] } }
   if (body['reset'] === true) return { ok: true, value: { reset: true } }
-  if (body['trigger'] === true) return { ok: true, value: { trigger: true } }
+  if (body['trigger'] === true) {
+    const rawDetail = body['detail']
+    if (rawDetail !== undefined && typeof rawDetail !== 'string') return invalid('detail must be a string')
+    if (typeof rawDetail === 'string' && rawDetail.length > MAX_DETAIL_LENGTH) {
+      return invalid(`detail must be ${MAX_DETAIL_LENGTH} characters or fewer`)
+    }
+    return { ok: true, value: { trigger: true, detail: rawDetail ?? null } }
+  }
   return invalid('body must set "active" (boolean), "reset": true, or "trigger": true')
 }
