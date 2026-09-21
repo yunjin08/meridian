@@ -119,6 +119,16 @@ even if the email never sends.
 To send from your own domain instead of `onboarding@resend.dev`, verify a domain in Resend and update
 the two constants in `email.ts`.
 
+**Email content.** Beyond the trigger detail, every email includes the current price and a direct
+"Trade on Binance" link (`utils/alert-pnl.ts`'s `buildBinanceTradeUrl`, `https://www.binance.com/en/trade/{ASSET}_USDT`).
+If the asset is actually held, it also includes average buy price and estimated profit, computed by
+`fetchSpotOnlyPnl` — **spot trade history only**, not the full fiat/P2P reconstruction the Crypto tab
+uses. That's a deliberate cost tradeoff: the full reconstruction windows 730 days of fiat and P2P
+history across ~40 Binance calls, too much load to run on every single trigger. If a position came in
+some other way (fiat purchase, P2P, transfer, convert), the email says the cost basis is incomplete
+rather than presenting a wrong number as exact. A failed P&L lookup (rate limit, transient Binance
+error) degrades to sending the email without those lines — it never blocks the trigger itself.
+
 ---
 
 ## Limitations
