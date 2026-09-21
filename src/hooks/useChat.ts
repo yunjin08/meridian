@@ -197,67 +197,90 @@ function toAlertCondition(raw: { type: string; threshold?: number }): AlertCondi
   return { type: t as 'price_above' | 'price_below' | 'price_crosses', threshold: raw.threshold ?? 0 }
 }
 
-// Parse and apply tool calls returned by the backend to local stores
-async function applyToolResults(toolCalls: AppliedTool[]): Promise<void> {
+async function applyOneTool(
+  tool: AppliedTool,
+  alertStore: ReturnType<typeof useAlertStore.getState>,
+  portfolioStore: ReturnType<typeof usePortfolioStore.getState>
+): Promise<void> {
+  switch (tool.name) {
+    case 'add_alert': {
+      const input = tool.input as {
+        label: string
+        symbol: string
+        condition: { type: string; threshold?: number }
+        autoReset?: boolean
+      }
+      const condition = toAlertCondition(input.condition)
+      // A retried turn can call add_alert twice for one request.
+      if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
+      await alertStore.addAlert({
+        label: input.label,
+        symbol: input.symbol.toUpperCase(),
+        condition,
+        autoReset: input.autoReset ?? false,
+      })
+      break
+    }
+    case 'edit_alert': {
+      const input = tool.input as {
+        id: string
+        label?: string
+        condition?: { type: string; threshold?: number }
+        autoReset?: boolean
+      }
+      const fields: Parameters<typeof alertStore.editAlert>[1] = {}
+      if (input.label !== undefined) fields.label = input.label
+      if (input.condition !== undefined) fields.condition = toAlertCondition(input.condition)
+      if (input.autoReset !== undefined) fields.autoReset = input.autoReset
+      await alertStore.editAlert(input.id, fields)
+      break
+    }
+    case 'remove_alert': {
+      const { id } = tool.input as { id: string }
+      await alertStore.removeAlert(id)
+      break
+    }
+    case 'toggle_alert': {
+      const { id } = tool.input as { id: string }
+      await alertStore.toggleActive(id)
+      break
+    }
+    case 'add_symbol': {
+      const { ticker, assetClass } = tool.input as { ticker: string; assetClass: 'stock' | 'reit' }
+      portfolioStore.addStock({ ticker: ticker.toUpperCase(), assetClass })
+      break
+    }
+    case 'remove_symbol': {
+      const { ticker } = tool.input as { ticker: string }
+      portfolioStore.removeStock(ticker.toUpperCase())
+      break
+    }
+    default:
+      throw new Error(`unrecognized tool "${tool.name}" — this tab may be running an older build`)
+  }
+}
+
+// Parse and apply tool calls returned by the backend to local stores. Each
+// tool is applied independently and failures are collected rather than
+// thrown — the model's reply already claims these succeeded (it has no way
+// to know otherwise), so a silently-swallowed failure would leave the user
+// believing something happened that didn't. An unmatched tool name is the
+// same failure mode: it means this tab's JS predates a tool the server
+// already knows about, which a stale cached bundle can produce.
+async function applyToolResults(toolCalls: AppliedTool[]): Promise<string[]> {
   const alertStore = useAlertStore.getState()
   const portfolioStore = usePortfolioStore.getState()
+  const failures: string[] = []
 
   for (const tool of toolCalls) {
-    switch (tool.name) {
-      case 'add_alert': {
-        const input = tool.input as {
-          label: string
-          symbol: string
-          condition: { type: string; threshold?: number }
-          autoReset?: boolean
-        }
-        const condition = toAlertCondition(input.condition)
-        // A retried turn can call add_alert twice for one request.
-        if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
-        await alertStore.addAlert({
-          label: input.label,
-          symbol: input.symbol.toUpperCase(),
-          condition,
-          autoReset: input.autoReset ?? false,
-        })
-        break
-      }
-      case 'edit_alert': {
-        const input = tool.input as {
-          id: string
-          label?: string
-          condition?: { type: string; threshold?: number }
-          autoReset?: boolean
-        }
-        const fields: Parameters<typeof alertStore.editAlert>[1] = {}
-        if (input.label !== undefined) fields.label = input.label
-        if (input.condition !== undefined) fields.condition = toAlertCondition(input.condition)
-        if (input.autoReset !== undefined) fields.autoReset = input.autoReset
-        await alertStore.editAlert(input.id, fields)
-        break
-      }
-      case 'remove_alert': {
-        const { id } = tool.input as { id: string }
-        await alertStore.removeAlert(id)
-        break
-      }
-      case 'toggle_alert': {
-        const { id } = tool.input as { id: string }
-        await alertStore.toggleActive(id)
-        break
-      }
-      case 'add_symbol': {
-        const { ticker, assetClass } = tool.input as { ticker: string; assetClass: 'stock' | 'reit' }
-        portfolioStore.addStock({ ticker: ticker.toUpperCase(), assetClass })
-        break
-      }
-      case 'remove_symbol': {
-        const { ticker } = tool.input as { ticker: string }
-        portfolioStore.removeStock(ticker.toUpperCase())
-        break
-      }
+    try {
+      await applyOneTool(tool, alertStore, portfolioStore)
+    } catch (err) {
+      console.error(`[useChat] failed to apply ${tool.name}:`, err)
+      failures.push(tool.name)
     }
   }
+  return failures
 }
 
 class StreamError extends Error {}
@@ -386,18 +409,15 @@ export function useChat() {
           ? await readStream(res.body, setDraft)
           : ((await res.json()) as ChatApiResponse)
 
-        if (result.appliedTools.length > 0) {
-          try {
-            await applyToolResults(result.appliedTools)
-          } catch (err) {
-            console.error('[useChat] failed to apply tool result:', err)
-          }
-        }
+        const failedTools = result.appliedTools.length > 0 ? await applyToolResults(result.appliedTools) : []
 
+        const failureNote = failedTools.length > 0
+          ? `\n\n(This device could not apply: ${failedTools.join(', ')}. Try refreshing the page and asking again.)`
+          : ''
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: result.reply,
+          content: result.reply + failureNote,
           timestamp: Date.now(),
           ...(result.lookups.length > 0 ? { lookups: result.lookups } : {}),
         }
