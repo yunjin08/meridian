@@ -92,6 +92,18 @@ export async function setActive(id: string, active: boolean): Promise<Alert | nu
   return data === null ? null : toAlert(data)
 }
 
+/** Flips active on or off. Read-then-write, not atomic — fine for a single-user app. */
+export async function toggleActive(id: string): Promise<Alert | null> {
+  const { data: existing, error: selectError } = await getSupabase()
+    .from('alerts')
+    .select('active')
+    .eq('id', id)
+    .maybeSingle()
+  if (selectError) fail('toggleActive:select', selectError)
+  if (existing === null) return null
+  return setActive(id, !existing.active)
+}
+
 /**
  * Partial update — an omitted field keeps its stored value. Changing the
  * condition re-arms the alert (clears triggered/last_price), since whatever

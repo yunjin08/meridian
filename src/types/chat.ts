@@ -1,4 +1,5 @@
 import type { StockAccountSummary, StockHolding, StockPosition, StockQuote } from './portfolio.ts'
+import type { Alert } from './alert.ts'
 
 export interface ChatMessage {
   id: string
@@ -123,15 +124,28 @@ export interface ChatRequest {
   context: DashboardContext
 }
 
-// Write tools: the function records them and the browser applies them to its stores.
-export type ChatToolName = 'add_alert' | 'edit_alert' | 'remove_alert' | 'toggle_alert' | 'add_symbol' | 'remove_symbol'
+// Alert tools execute server-side (see chat-tools.ts's executeAlertTool). The
+// portfolio-watchlist tools still only live in localStorage, so the browser
+// applies those itself.
+export type ChatAlertToolName = 'add_alert' | 'edit_alert' | 'remove_alert' | 'toggle_alert'
+export type ChatToolName = ChatAlertToolName | 'add_symbol' | 'remove_symbol'
 
 // Read tools: executed inside the function, their text goes back to the model.
 export type ChatReadToolName = 'get_macro_snapshot' | 'get_crypto_market' | 'get_candles' | 'get_stock_quote'
 
+// Alert tools (add/edit/remove/toggle) execute server-side now, so the model
+// gets a real result instead of an unconditional "Applied". Portfolio-watchlist
+// tools (add_symbol/remove_symbol) still live in localStorage only and remain
+// client-applied — `result` is absent for those.
+export type AlertToolResult =
+  | { ok: true; alert: Alert }
+  | { ok: true; removed: true }
+  | { ok: false; error: string }
+
 export interface AppliedTool {
   name: ChatToolName
   input: unknown
+  result?: AlertToolResult
 }
 
 export interface ChatLookup {

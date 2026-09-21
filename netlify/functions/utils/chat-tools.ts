@@ -3,8 +3,18 @@ import { BinanceError } from './binance-client.ts'
 import { EmptyKlinesError, fetchCandlesWithIndicators, VALID_INTERVALS } from './klines.ts'
 import { fetchCryptoMarket, fetchMacroSnapshot, MissingFredKeyError } from './market-data.ts'
 import { finnhubFetch, FinnhubError } from './finnhub-client.ts'
+import {
+  deleteAlert,
+  insertAlert,
+  listAlerts,
+  toggleActive,
+  updateAlert,
+  SupabaseRepoError,
+} from './alert-repo.ts'
+import { parseAlertInput, parsePatchInput, parseUuidParam } from './alert-validation.ts'
+import { findDuplicateAlert } from '../../../src/lib/alertDedupe.ts'
 import type { FinnhubQuote } from '../../../src/types/finnhub.ts'
-import type { ChatLookup, ChatReadToolName, DashboardContext } from '../../../src/types/chat.ts'
+import type { AlertToolResult, ChatAlertToolName, ChatLookup, ChatReadToolName, DashboardContext } from '../../../src/types/chat.ts'
 import type { CryptoMarketSnapshot, MacroSeriesPoint, MacroSnapshot } from '../../../src/types/market.ts'
 import type { CandlesResponse } from '../../../src/types/candle.ts'
 
@@ -141,6 +151,73 @@ already triggered.`,
     },
   },
 ]
+
+const ALERT_TOOL_NAMES: ReadonlySet<string> = new Set<ChatAlertToolName>([
+  'add_alert',
+  'edit_alert',
+  'remove_alert',
+  'toggle_alert',
+])
+
+export function isAlertTool(name: string): name is ChatAlertToolName {
+  return ALERT_TOOL_NAMES.has(name)
+}
+
+// ---------------------------------------------------------------------------
+// Alert write tools: executed here, not by the browser. Alerts are
+// Supabase-backed, so unlike the portfolio-watchlist tools below, there's a
+// real result to give the model instead of an unconditional "Applied" —
+// see the incident this replaced in docs/alerts.md.
+// ---------------------------------------------------------------------------
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function extractId(input: unknown): string | undefined {
+  return isRecord(input) && typeof input['id'] === 'string' ? input['id'] : undefined
+}
+
+export async function executeAlertTool(name: ChatAlertToolName, input: unknown): Promise<AlertToolResult> {
+  try {
+    switch (name) {
+      case 'add_alert': {
+        const parsed = parseAlertInput(input)
+        if (!parsed.ok) return { ok: false, error: parsed.error }
+        // A retried turn can call add_alert twice for one request.
+        const existing = await listAlerts()
+        const duplicate = findDuplicateAlert(existing, parsed.value.symbol, parsed.value.condition)
+        if (duplicate) return { ok: true, alert: duplicate }
+        return { ok: true, alert: await insertAlert(parsed.value) }
+      }
+      case 'edit_alert': {
+        const id = parseUuidParam(extractId(input))
+        if (!id.ok) return { ok: false, error: id.error }
+        const patch = parsePatchInput(input)
+        if (!patch.ok) return { ok: false, error: patch.error }
+        if (!('edit' in patch.value)) return { ok: false, error: 'edit_alert needs at least one of label, condition, or autoReset' }
+        const alert = await updateAlert(id.value, patch.value.edit)
+        return alert === null ? { ok: false, error: 'alert not found — it may already have been deleted' } : { ok: true, alert }
+      }
+      case 'remove_alert': {
+        const id = parseUuidParam(extractId(input))
+        if (!id.ok) return { ok: false, error: id.error }
+        const removed = await deleteAlert(id.value)
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'alert not found — it may already have been deleted' }
+      }
+      case 'toggle_alert': {
+        const id = parseUuidParam(extractId(input))
+        if (!id.ok) return { ok: false, error: id.error }
+        const alert = await toggleActive(id.value)
+        return alert === null ? { ok: false, error: 'alert not found — it may already have been deleted' } : { ok: true, alert }
+      }
+    }
+  } catch (err) {
+    if (err instanceof SupabaseRepoError) return { ok: false, error: `database error: ${err.message}` }
+    console.error(`[chat-tools] ${name} failed unexpectedly:`, err)
+    return { ok: false, error: 'unexpected server error' }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Read tools: executed here, result text goes back to the model

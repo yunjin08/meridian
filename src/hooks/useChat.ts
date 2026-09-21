@@ -11,7 +11,6 @@ import { useNavigationStore } from '@/store/navigationStore'
 import { lastValue } from '@/lib/formatters'
 import { summarisePortfolio } from '@/lib/portfolioSummary'
 import { summarisePnl } from '@/lib/pnlSummary'
-import { findDuplicateAlert } from '@/lib/alertDedupe'
 import { loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
@@ -188,61 +187,30 @@ function buildContext(): DashboardContext {
   }
 }
 
-// Convert a tool's raw condition input to a proper AlertCondition discriminated union
-function toAlertCondition(raw: { type: string; threshold?: number }): AlertCondition {
-  const t = raw.type
-  if (t === 'macd_crossover' || t === 'macd_crossunder') return { type: t }
-  if (t === 'rsi_above' || t === 'rsi_below') return { type: t, threshold: raw.threshold ?? 50 }
-  // price_above | price_below | price_crosses
-  return { type: t as 'price_above' | 'price_below' | 'price_crosses', threshold: raw.threshold ?? 0 }
-}
-
 async function applyOneTool(
   tool: AppliedTool,
   alertStore: ReturnType<typeof useAlertStore.getState>,
   portfolioStore: ReturnType<typeof usePortfolioStore.getState>
 ): Promise<void> {
   switch (tool.name) {
-    case 'add_alert': {
-      const input = tool.input as {
-        label: string
-        symbol: string
-        condition: { type: string; threshold?: number }
-        autoReset?: boolean
-      }
-      const condition = toAlertCondition(input.condition)
-      // A retried turn can call add_alert twice for one request.
-      if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
-      await alertStore.addAlert({
-        label: input.label,
-        symbol: input.symbol.toUpperCase(),
-        condition,
-        autoReset: input.autoReset ?? false,
-      })
-      break
-    }
-    case 'edit_alert': {
-      const input = tool.input as {
-        id: string
-        label?: string
-        condition?: { type: string; threshold?: number }
-        autoReset?: boolean
-      }
-      const fields: Parameters<typeof alertStore.editAlert>[1] = {}
-      if (input.label !== undefined) fields.label = input.label
-      if (input.condition !== undefined) fields.condition = toAlertCondition(input.condition)
-      if (input.autoReset !== undefined) fields.autoReset = input.autoReset
-      await alertStore.editAlert(input.id, fields)
+    // Alert tools now execute server-side (see chat.ts) — the mutation is
+    // already done by the time this runs. `result` is the real outcome; this
+    // just syncs the local store from it, no network call. A missing result
+    // means this tab predates that change (stale bundle); a present-but-failed
+    // result is already explained in the assistant's reply text, so there's
+    // nothing to surface again here.
+    case 'add_alert':
+    case 'edit_alert':
+    case 'toggle_alert': {
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok && 'alert' in result) alertStore.applySyncedAlert(result.alert)
       break
     }
     case 'remove_alert': {
-      const { id } = tool.input as { id: string }
-      await alertStore.removeAlert(id)
-      break
-    }
-    case 'toggle_alert': {
-      const { id } = tool.input as { id: string }
-      await alertStore.toggleActive(id)
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok) alertStore.applySyncedRemoval((tool.input as { id: string }).id)
       break
     }
     case 'add_symbol': {

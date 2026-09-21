@@ -1,4 +1,7 @@
-import type { Alert, AlertCondition } from '@/types/alert'
+// Alias-free (no `@/` imports): shared with the server-side alert tool
+// executor in netlify/functions/utils/chat-tools.ts, which esbuild bundles
+// with no path alias — see CLAUDE.md rule 10.
+import type { Alert, AlertCondition } from '../types/alert.ts'
 
 function sameCondition(a: AlertCondition, b: AlertCondition): boolean {
   if (a.type !== b.type) return false

@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway, corsHeaders } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
 import { toHandlerEvent, toResponse } from './utils/v2.ts'
-import { CHAT_TOOLS, executeReadTool, isReadTool } from './utils/chat-tools.ts'
+import { CHAT_TOOLS, executeAlertTool, executeReadTool, isAlertTool, isReadTool } from './utils/chat-tools.ts'
 import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatStreamEvent, ChatToolName } from '../../src/types/chat.ts'
 
 const MODEL = 'claude-haiku-4-5-20251001'
@@ -26,7 +26,9 @@ const CUT_SHORT_NOTE = '\n\n(Reply cut short at the length limit. Ask me to cont
 const STATIC_INSTRUCTIONS = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
 You can answer questions about live data AND manage alerts and the portfolio watchlist using tools.
 Be brief and factual: one or two sentences for informational answers.
-Do not give financial advice. When you create, edit, remove, or toggle an alert, confirm what you did.
+Do not give financial advice. Alert tools return a real result — on success confirm exactly what
+changed; on failure (you'll get an error result), tell the user plainly what went wrong and do not
+claim the change happened.
 
 You also have lookup tools. Use get_macro_snapshot for interest rates, inflation, the Fed, yields,
 the dollar or the macro backdrop; get_crypto_market for sentiment, fear and greed, dominance, funding
@@ -290,14 +292,28 @@ async function runTurn(
           if (isReadTool(block.name)) hooks.onStatus?.(STATUS_BY_TOOL[block.name] ?? 'Looking that up')
         }
 
-        // Read tools run here and feed real data back; write tools are only
-        // recorded because the browser owns the stores they mutate. Independent
-        // lookups in one turn run in parallel.
+        // Read tools run here and feed real data back. Alert tools also run
+        // here now — alerts are Supabase-backed, so there's a real result to
+        // give the model. Only the portfolio-watchlist tools are still just
+        // recorded, because that data lives in localStorage the browser owns.
+        // Independent lookups in one turn run in parallel.
         const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
           toolBlocks.map(async (block) => {
             if (isReadTool(block.name)) {
               const outcome = await executeReadTool(block.name, block.input, context)
               return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content, lookup: outcome.lookup }
+            }
+            if (isAlertTool(block.name)) {
+              const result = await executeAlertTool(block.name, block.input)
+              const applied: AppliedTool = { name: block.name, input: block.input, result }
+              appliedTools.push(applied)
+              hooks.onApplied?.(applied)
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: block.id,
+                content: result.ok ? `Applied: ${block.name}` : `Failed: ${block.name} — ${result.error}`,
+                ...(result.ok ? {} : { is_error: true }),
+              }
             }
             const applied: AppliedTool = { name: block.name as ChatToolName, input: block.input }
             appliedTools.push(applied)

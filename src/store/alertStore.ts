@@ -17,6 +17,9 @@ interface AlertState {
   removeAlert: (id: string) => Promise<void>
   toggleActive: (id: string) => Promise<void>
   resetAlert: (id: string) => Promise<void>
+  /** Local-only sync for a mutation the chat assistant already ran server-side — no network call. */
+  applySyncedAlert: (alert: Alert) => void
+  applySyncedRemoval: (id: string) => void
 }
 
 function messageOf(err: unknown, fallback: string): string {
@@ -111,5 +114,13 @@ export const useAlertStore = create<AlertState>()((set, get) => {
         const updated = await api.resetAlert(id)
         set({ alerts: get().alerts.map((a) => (a.id === id ? updated : a)) })
       }),
+
+    applySyncedAlert: (alert) => {
+      const alerts = get().alerts
+      const exists = alerts.some((a) => a.id === alert.id)
+      set({ alerts: exists ? alerts.map((a) => (a.id === alert.id ? alert : a)) : [alert, ...alerts] })
+    },
+
+    applySyncedRemoval: (id) => set({ alerts: get().alerts.filter((a) => a.id !== id) }),
   }
 })
