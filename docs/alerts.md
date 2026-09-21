@@ -4,9 +4,17 @@
 
 ## How it works
 
-Alerts are created and deleted through the chat assistant's write tools (`add_alert`, `remove_alert`,
-`toggle_alert` in `netlify/functions/utils/chat-tools.ts`), applied by `useChat.ts`, and stored in
-Supabase (`alerts` table) — not localStorage.
+Alerts are created, edited, and deleted through the chat assistant's write tools (`add_alert`,
+`edit_alert`, `remove_alert`, `toggle_alert` in `netlify/functions/utils/chat-tools.ts`), applied by
+`useChat.ts`, and stored in Supabase (`alerts` table) — not localStorage.
+
+`edit_alert` is a partial update: only the fields the model includes (`label`, `condition`,
+`autoReset`) change, everything else keeps its stored value. The dashboard context sent to the model
+includes each alert's raw `conditionType`/`threshold` (not just the human-readable string) specifically
+so it can reconstruct an accurate full condition when editing just one part of it — the condition field
+is always a full replace, never a partial merge of the threshold alone. Editing the condition re-arms
+the alert (clears `triggered`/`last_price`) since the old trigger no longer describes the new
+condition. The symbol itself is not editable — remove and re-add for that.
 
 **Evaluation is server-only.** `netlify/functions/alerts-cron.ts` is a scheduled function that runs
 every minute, checks every active alert against fresh Binance data using the pure condition logic in
