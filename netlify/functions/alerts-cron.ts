@@ -9,9 +9,11 @@ import {
   type CronAlert,
 } from './utils/alert-repo.ts'
 import { sendAlertEmail } from './utils/email.ts'
+import { buildBinanceTradeUrl, fetchSpotOnlyPnl } from './utils/alert-pnl.ts'
 import { evaluateIndicatorAlert, evaluatePriceAlert, isPriceCondition } from '../../src/lib/alertEvaluation.ts'
 import { ALERT_AUTO_RESET_COOLDOWN_MS, DEFAULT_TIMEFRAME, CANDLE_LIMIT } from '../../src/constants.ts'
 import type { IndicatorData } from '../../src/types/candle.ts'
+import type { CryptoAssetPnl } from '../../src/types/pnl.ts'
 
 interface BinanceSpotPrice {
   symbol: string
@@ -52,7 +54,7 @@ async function processAlert(alert: CronAlert): Promise<void> {
     if (price === null) return
     const { triggered, detail } = evaluatePriceAlert(alert, price, alert.lastPrice)
     await updateLastPrice(alert.id, price)
-    if (triggered) await fireAlert(alert, detail)
+    if (triggered) await fireAlert(alert, detail, price)
     return
   }
 
@@ -62,10 +64,29 @@ async function processAlert(alert: CronAlert): Promise<void> {
   if (triggered) await fireAlert(alert, detail)
 }
 
-async function fireAlert(alert: CronAlert, detail: string): Promise<void> {
+async function fireAlert(alert: CronAlert, detail: string, knownPrice?: number): Promise<void> {
   await markTriggered(alert.id, new Date().toISOString())
+
+  const currentPrice = knownPrice ?? (await fetchPrice(alert.symbol))
+  let pnl: CryptoAssetPnl | null = null
+  if (currentPrice !== null) {
+    try {
+      pnl = await fetchSpotOnlyPnl(alert.symbol, currentPrice)
+    } catch (err) {
+      // Cost basis is a nice-to-have on top of the trigger itself — a failed
+      // lookup (rate limit, transient Binance error) should not block the email.
+      console.error(`[alerts-cron] P&L lookup failed for ${alert.symbol}:`, err)
+    }
+  }
+
   try {
-    await sendAlertEmail({ label: alert.label, detail })
+    await sendAlertEmail({
+      label: alert.label,
+      detail,
+      currentPrice,
+      pnl,
+      tradeUrl: buildBinanceTradeUrl(alert.symbol),
+    })
   } catch (err) {
     // The alert is already marked triggered — a bounced email doesn't undo that.
     // Logged for visibility; the owner still sees the trigger in the dashboard.
