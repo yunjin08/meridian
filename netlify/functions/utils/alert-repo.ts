@@ -1,5 +1,5 @@
-import { getSupabase, type AlertRow } from './supabase-client.ts'
-import type { Alert, AlertCondition, AlertInput } from '../../../src/types/alert.ts'
+import { getSupabase, type AlertRow, type AlertUpdate } from './supabase-client.ts'
+import type { Alert, AlertCondition, AlertEditFields, AlertInput } from '../../../src/types/alert.ts'
 
 export class SupabaseRepoError extends Error {
   constructor(message: string) {
@@ -89,6 +89,29 @@ export async function setActive(id: string, active: boolean): Promise<Alert | nu
     .select('*')
     .maybeSingle()
   if (error) fail('setActive', error)
+  return data === null ? null : toAlert(data)
+}
+
+/**
+ * Partial update — an omitted field keeps its stored value. Changing the
+ * condition re-arms the alert (clears triggered/last_price), since whatever
+ * the old trigger meant no longer applies to the new condition.
+ */
+export async function updateAlert(id: string, fields: AlertEditFields): Promise<Alert | null> {
+  const update: AlertUpdate = { updated_at: new Date().toISOString() }
+  if (fields.label !== undefined) update.label = fields.label
+  if (fields.condition !== undefined) {
+    const cols = conditionColumns(fields.condition)
+    update.condition_type = cols.condition_type
+    update.threshold = cols.threshold
+    update.triggered = false
+    update.triggered_at = null
+    update.last_price = null
+  }
+  if (fields.autoReset !== undefined) update.auto_reset = fields.autoReset
+
+  const { data, error } = await getSupabase().from('alerts').update(update).eq('id', id).select('*').maybeSingle()
+  if (error) fail('updateAlert', error)
   return data === null ? null : toAlert(data)
 }
 

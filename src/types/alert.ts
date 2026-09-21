@@ -42,3 +42,10 @@ export interface AlertInput {
   condition: AlertCondition
   autoReset: boolean
 }
+
+/** Partial update: an omitted field keeps its current server-side value. Symbol is not editable — remove and re-add for that. */
+export interface AlertEditFields {
+  label?: string
+  condition?: AlertCondition
+  autoReset?: boolean
+}

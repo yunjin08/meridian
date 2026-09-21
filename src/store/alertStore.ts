@@ -3,7 +3,7 @@ import * as api from '@/lib/alertsApi'
 import { takeLegacyAlerts } from '@/lib/alertMigration'
 import { sendNotification } from '@/lib/notifications'
 import { describeCondition } from '@/lib/alertEvaluation'
-import type { Alert, AlertInput } from '@/types/alert'
+import type { Alert, AlertEditFields, AlertInput } from '@/types/alert'
 
 interface AlertState {
   alerts: Alert[]
@@ -13,6 +13,7 @@ interface AlertState {
 
   load: () => Promise<void>
   addAlert: (input: AlertInput) => Promise<void>
+  editAlert: (id: string, fields: AlertEditFields) => Promise<void>
   removeAlert: (id: string) => Promise<void>
   toggleActive: (id: string) => Promise<void>
   resetAlert: (id: string) => Promise<void>
@@ -83,6 +84,12 @@ export const useAlertStore = create<AlertState>()((set, get) => {
       mutate('Failed to add alert', async () => {
         const alert = await api.createAlert(input)
         set({ alerts: [alert, ...get().alerts] })
+      }),
+
+    editAlert: (id, fields) =>
+      mutate('Failed to edit alert', async () => {
+        const updated = await api.editAlert(id, fields)
+        set({ alerts: get().alerts.map((a) => (a.id === id ? updated : a)) })
       }),
 
     removeAlert: (id) =>

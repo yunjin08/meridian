@@ -1,4 +1,4 @@
-import type { AlertCondition, AlertConditionType, AlertInput } from '../../../src/types/alert.ts'
+import type { AlertCondition, AlertConditionType, AlertEditFields, AlertInput } from '../../../src/types/alert.ts'
 
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -60,13 +60,18 @@ function parseCondition(raw: unknown): Validation<AlertCondition> {
   return { ok: true, value: { type: conditionType as 'price_above' | 'price_below' | 'price_crosses', threshold } }
 }
 
+function parseLabel(raw: unknown): Validation<string> {
+  const label = typeof raw === 'string' ? raw.trim() : ''
+  if (label.length === 0) return invalid('label is required')
+  if (label.length > MAX_LABEL_LENGTH) return invalid(`label must be ${MAX_LABEL_LENGTH} characters or fewer`)
+  return { ok: true, value: label }
+}
+
 export function parseAlertInput(body: unknown): Validation<AlertInput> {
   if (!isRecord(body)) return invalid('body must be a JSON object')
 
-  const rawLabel = body['label']
-  const label = typeof rawLabel === 'string' ? rawLabel.trim() : ''
-  if (label.length === 0) return invalid('label is required')
-  if (label.length > MAX_LABEL_LENGTH) return invalid(`label must be ${MAX_LABEL_LENGTH} characters or fewer`)
+  const label = parseLabel(body['label'])
+  if (!label.ok) return label
 
   const rawSymbol = body['symbol']
   const symbol = typeof rawSymbol === 'string' ? rawSymbol.trim().toUpperCase() : ''
@@ -82,14 +87,45 @@ export function parseAlertInput(body: unknown): Validation<AlertInput> {
   }
   const autoReset = rawAutoReset ?? false
 
-  return { ok: true, value: { label, symbol, condition: condition.value, autoReset } }
+  return { ok: true, value: { label: label.value, symbol, condition: condition.value, autoReset } }
 }
 
-export type AlertPatch = { active: boolean } | { reset: true }
+export type AlertPatch = { active: boolean } | { reset: true } | { edit: AlertEditFields }
+
+function parseEditFields(body: Record<string, unknown>): Validation<AlertEditFields> {
+  const fields: AlertEditFields = {}
+
+  if (body['label'] !== undefined) {
+    const label = parseLabel(body['label'])
+    if (!label.ok) return label
+    fields.label = label.value
+  }
+
+  if (body['condition'] !== undefined) {
+    const condition = parseCondition(body['condition'])
+    if (!condition.ok) return condition
+    fields.condition = condition.value
+  }
+
+  if (body['autoReset'] !== undefined) {
+    if (typeof body['autoReset'] !== 'boolean') return invalid('autoReset must be a boolean')
+    fields.autoReset = body['autoReset']
+  }
+
+  if (Object.keys(fields).length === 0) {
+    return invalid('edit must include at least one of "label", "condition", or "autoReset"')
+  }
+  return { ok: true, value: fields }
+}
 
 export function parsePatchInput(body: unknown): Validation<AlertPatch> {
   if (!isRecord(body)) return invalid('body must be a JSON object')
   if (typeof body['active'] === 'boolean') return { ok: true, value: { active: body['active'] } }
   if (body['reset'] === true) return { ok: true, value: { reset: true } }
-  return invalid('body must set "active" (boolean) or "reset": true')
+  if (body['label'] !== undefined || body['condition'] !== undefined || body['autoReset'] !== undefined) {
+    const fields = parseEditFields(body)
+    if (!fields.ok) return fields
+    return { ok: true, value: { edit: fields.value } }
+  }
+  return invalid('body must set "active" (boolean), "reset": true, or an edit field ("label"/"condition"/"autoReset")')
 }

@@ -49,6 +49,8 @@ export interface DashboardContext {
     label: string
     symbol: string
     condition: string  // pre-formatted: "price above $90,000"
+    conditionType: string   // raw discriminant, e.g. "price_above" — for edit_alert
+    threshold: number | null  // raw threshold, null for macd_* conditions — for edit_alert
     active: boolean
     triggered: boolean
     triggeredAt: number | null
@@ -122,7 +124,7 @@ export interface ChatRequest {
 }
 
 // Write tools: the function records them and the browser applies them to its stores.
-export type ChatToolName = 'add_alert' | 'remove_alert' | 'toggle_alert' | 'add_symbol' | 'remove_symbol'
+export type ChatToolName = 'add_alert' | 'edit_alert' | 'remove_alert' | 'toggle_alert' | 'add_symbol' | 'remove_symbol'
 
 // Read tools: executed inside the function, their text goes back to the model.
 export type ChatReadToolName = 'get_macro_snapshot' | 'get_crypto_market' | 'get_candles' | 'get_stock_quote'

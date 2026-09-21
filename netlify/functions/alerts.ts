@@ -17,6 +17,7 @@ import {
   insertAlert,
   listAlerts,
   setActive,
+  updateAlert,
   SupabaseRepoError,
 } from './utils/alert-repo.ts'
 import { parseAlertInput, parseJsonBody, parsePatchInput, parseUuidParam } from './utils/alert-validation.ts'
@@ -43,7 +44,12 @@ async function handlePut(event: HandlerEvent): Promise<HandlerResponse> {
   const patch = parsePatchInput(json.value)
   if (!patch.ok) return badRequest(patch.error)
 
-  const alert = 'reset' in patch.value ? await clearTriggered(id.value) : await setActive(id.value, patch.value.active)
+  const alert =
+    'reset' in patch.value
+      ? await clearTriggered(id.value)
+      : 'edit' in patch.value
+        ? await updateAlert(id.value, patch.value.edit)
+        : await setActive(id.value, patch.value.active)
   if (alert === null) return notFound()
   return ok({ alert })
 }

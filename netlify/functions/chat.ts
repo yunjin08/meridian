@@ -26,7 +26,7 @@ const CUT_SHORT_NOTE = '\n\n(Reply cut short at the length limit. Ask me to cont
 const STATIC_INSTRUCTIONS = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
 You can answer questions about live data AND manage alerts and the portfolio watchlist using tools.
 Be brief and factual: one or two sentences for informational answers.
-Do not give financial advice. When you create, remove, or toggle an alert, confirm what you did.
+Do not give financial advice. When you create, edit, remove, or toggle an alert, confirm what you did.
 
 You also have lookup tools. Use get_macro_snapshot for interest rates, inflation, the Fed, yields,
 the dollar or the macro backdrop; get_crypto_market for sentiment, fear and greed, dominance, funding
@@ -177,14 +177,14 @@ PRICE (${ctx.activeSymbol}):
   if (ctx.alerts.length === 0) {
     prompt += `\n\nALERTS: None configured`
   } else {
-    prompt += `\n\nALERTS (${ctx.alerts.length} total — use IDs to remove/toggle):`
+    prompt += `\n\nALERTS (${ctx.alerts.length} total — use IDs to edit/remove/toggle):`
     for (const a of ctx.alerts) {
       const status = a.triggered
         ? `TRIGGERED at ${new Date(a.triggeredAt ?? 0).toLocaleTimeString()}`
         : a.active
           ? 'active'
           : 'paused'
-      prompt += `\n- ID ${a.id} | "${a.label}" [${a.symbol}]: ${a.condition} — ${status}`
+      prompt += `\n- ID ${a.id} | "${a.label}" [${a.symbol}] (conditionType: ${a.conditionType}, threshold: ${a.threshold ?? 'n/a'}): ${a.condition} — ${status}`
     }
   }
 

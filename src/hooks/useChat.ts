@@ -177,6 +177,8 @@ function buildContext(): DashboardContext {
       label: a.label,
       symbol: a.symbol,
       condition: formatCondition(a.condition),
+      conditionType: a.condition.type,
+      threshold: 'threshold' in a.condition ? a.condition.threshold : null,
       active: a.active,
       triggered: a.triggered,
       triggeredAt: a.triggeredAt,
@@ -184,6 +186,15 @@ function buildContext(): DashboardContext {
     portfolio: buildPortfolioContext(),
     pnl: buildPnlContext(),
   }
+}
+
+// Convert a tool's raw condition input to a proper AlertCondition discriminated union
+function toAlertCondition(raw: { type: string; threshold?: number }): AlertCondition {
+  const t = raw.type
+  if (t === 'macd_crossover' || t === 'macd_crossunder') return { type: t }
+  if (t === 'rsi_above' || t === 'rsi_below') return { type: t, threshold: raw.threshold ?? 50 }
+  // price_above | price_below | price_crosses
+  return { type: t as 'price_above' | 'price_below' | 'price_crosses', threshold: raw.threshold ?? 0 }
 }
 
 // Parse and apply tool calls returned by the backend to local stores
@@ -200,20 +211,7 @@ async function applyToolResults(toolCalls: AppliedTool[]): Promise<void> {
           condition: { type: string; threshold?: number }
           autoReset?: boolean
         }
-        // Convert the raw condition to a proper AlertCondition discriminated union
-        let condition: AlertCondition
-        const t = input.condition.type
-        if (t === 'macd_crossover' || t === 'macd_crossunder') {
-          condition = { type: t }
-        } else if (t === 'rsi_above' || t === 'rsi_below') {
-          condition = { type: t, threshold: input.condition.threshold ?? 50 }
-        } else {
-          // price_above | price_below | price_crosses
-          condition = {
-            type: t as 'price_above' | 'price_below' | 'price_crosses',
-            threshold: input.condition.threshold ?? 0,
-          }
-        }
+        const condition = toAlertCondition(input.condition)
         // A retried turn can call add_alert twice for one request.
         if (findDuplicateAlert(alertStore.alerts, input.symbol, condition)) break
         await alertStore.addAlert({
@@ -222,6 +220,20 @@ async function applyToolResults(toolCalls: AppliedTool[]): Promise<void> {
           condition,
           autoReset: input.autoReset ?? false,
         })
+        break
+      }
+      case 'edit_alert': {
+        const input = tool.input as {
+          id: string
+          label?: string
+          condition?: { type: string; threshold?: number }
+          autoReset?: boolean
+        }
+        const fields: Parameters<typeof alertStore.editAlert>[1] = {}
+        if (input.label !== undefined) fields.label = input.label
+        if (input.condition !== undefined) fields.condition = toAlertCondition(input.condition)
+        if (input.autoReset !== undefined) fields.autoReset = input.autoReset
+        await alertStore.editAlert(input.id, fields)
         break
       }
       case 'remove_alert': {

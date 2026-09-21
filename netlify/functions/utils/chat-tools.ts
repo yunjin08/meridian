@@ -12,6 +12,31 @@ import type { CandlesResponse } from '../../../src/types/candle.ts'
 // Write tools: recorded by the function, applied by the browser
 // ---------------------------------------------------------------------------
 
+// Shared by add_alert and edit_alert — both take the identical condition shape.
+const ALERT_CONDITION_SCHEMA = {
+  type: 'object' as const,
+  description: 'Alert trigger condition',
+  properties: {
+    type: {
+      type: 'string',
+      enum: [
+        'price_above',
+        'price_below',
+        'price_crosses',
+        'rsi_above',
+        'rsi_below',
+        'macd_crossover',
+        'macd_crossunder',
+      ],
+    },
+    threshold: {
+      type: 'number',
+      description: 'Required for price_* and rsi_* conditions. For rsi: 0 to 100.',
+    },
+  },
+  required: ['type'],
+}
+
 const WRITE_TOOLS: Anthropic.Tool[] = [
   {
     name: 'add_alert',
@@ -33,35 +58,37 @@ For price conditions on crypto, use USDT.`,
           type: 'string',
           description: 'Asset symbol, e.g. BTCUSDT, ETHUSDT, AAPL, O',
         },
-        condition: {
-          type: 'object' as const,
-          description: 'Alert trigger condition',
-          properties: {
-            type: {
-              type: 'string',
-              enum: [
-                'price_above',
-                'price_below',
-                'price_crosses',
-                'rsi_above',
-                'rsi_below',
-                'macd_crossover',
-                'macd_crossunder',
-              ],
-            },
-            threshold: {
-              type: 'number',
-              description: 'Required for price_* and rsi_* conditions. For rsi: 0 to 100.',
-            },
-          },
-          required: ['type'],
-        },
+        condition: ALERT_CONDITION_SCHEMA,
         autoReset: {
           type: 'boolean',
           description: 'For price_crosses only: re-arm after 5-min cooldown. Defaults to false.',
         },
       },
       required: ['label', 'symbol', 'condition'],
+    },
+  },
+  {
+    name: 'edit_alert',
+    description: `Edit an existing alert's label, condition, or auto-reset flag. Only include fields
+that are changing — an omitted field keeps its current value. Look up the ID and current
+conditionType/threshold from the ALERTS list. To change the condition, send the COMPLETE new
+condition object (type + threshold), not just the part that changed — e.g. to move a price_above
+threshold, resend "price_above" with the new threshold, using the alert's existing conditionType if
+that part is not changing. Cannot change the symbol (remove and re-add for that), pause/resume (use
+toggle_alert), or delete (use remove_alert). Changing the condition re-arms the alert if it was
+already triggered.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'UUID of the alert to edit' },
+        label: { type: 'string', description: 'New label, if renaming' },
+        condition: ALERT_CONDITION_SCHEMA,
+        autoReset: {
+          type: 'boolean',
+          description: 'For price_crosses only: re-arm after 5-min cooldown.',
+        },
+      },
+      required: ['id'],
     },
   },
   {

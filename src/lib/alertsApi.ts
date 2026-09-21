@@ -1,5 +1,5 @@
 import { API_BASE } from '@/constants'
-import type { Alert, AlertInput } from '@/types/alert'
+import type { Alert, AlertEditFields, AlertInput } from '@/types/alert'
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const config: RequestInit = {
@@ -41,6 +41,14 @@ export async function setAlertActive(id: string, active: boolean): Promise<Alert
   const body = await request<{ alert: Alert }>(`/alerts?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({ active }),
+  })
+  return body.alert
+}
+
+export async function editAlert(id: string, fields: AlertEditFields): Promise<Alert> {
+  const body = await request<{ alert: Alert }>(`/alerts?id=${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(fields),
   })
   return body.alert
 }
