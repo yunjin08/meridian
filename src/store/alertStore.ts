@@ -1,14 +1,12 @@
 import { create } from 'zustand'
 import * as api from '@/lib/alertsApi'
 import { takeLegacyAlerts } from '@/lib/alertMigration'
+import { sendNotification } from '@/lib/notifications'
+import { describeCondition } from '@/lib/alertEvaluation'
 import type { Alert, AlertInput } from '@/types/alert'
 
 interface AlertState {
   alerts: Alert[]
-  // Previous price this browser tab saw per alert, for price_crosses detection.
-  // Client-side only — never persisted or sent to the server, which tracks its
-  // own copy (`last_price`) for the cron's independent cross detection.
-  clientLastPrice: Record<string, number>
   isLoading: boolean
   hasLoaded: boolean
   error: string | null
@@ -18,12 +16,23 @@ interface AlertState {
   removeAlert: (id: string) => Promise<void>
   toggleActive: (id: string) => Promise<void>
   resetAlert: (id: string) => Promise<void>
-  markTriggered: (id: string, detail: string) => void
-  updateLastEvaluatedPrice: (id: string, price: number) => void
 }
 
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
+}
+
+// Alert conditions are evaluated only by the cron now, never in the browser.
+// This notices a triggered transition purely by diffing successive polls
+// against server truth — it never computes a condition itself, so it can't
+// reintroduce the race the old in-browser evaluator had with the cron.
+function notifyFreshTriggers(previous: Alert[], next: Alert[]): void {
+  for (const alert of next) {
+    const before = previous.find((a) => a.id === alert.id)
+    if (alert.triggered && !(before?.triggered ?? false)) {
+      sendNotification(`${alert.symbol} Alert`, describeCondition(alert), alert.id)
+    }
+  }
 }
 
 export const useAlertStore = create<AlertState>()((set, get) => {
@@ -39,7 +48,6 @@ export const useAlertStore = create<AlertState>()((set, get) => {
 
   return {
     alerts: [],
-    clientLastPrice: {},
     isLoading: false,
     hasLoaded: false,
     error: null,
@@ -56,6 +64,11 @@ export const useAlertStore = create<AlertState>()((set, get) => {
             alerts = migrated
           }
         }
+
+        const previous = get().alerts
+        // Skip notifying on the very first load — every already-triggered
+        // alert would otherwise "transition" the moment the tab opens.
+        if (get().hasLoaded) notifyFreshTriggers(previous, alerts)
 
         set({ alerts, hasLoaded: true, error: null })
       } catch (err) {
@@ -91,24 +104,5 @@ export const useAlertStore = create<AlertState>()((set, get) => {
         const updated = await api.resetAlert(id)
         set({ alerts: get().alerts.map((a) => (a.id === id ? updated : a)) })
       }),
-
-    // Fired from useAlertEvaluator for instant in-tab feedback. Updates local
-    // state immediately for the notification/UI, then persists in the
-    // background. The server sends the email itself on this call (mirroring
-    // the cron's own trigger path) — with a tab open, the browser almost
-    // always notices before the cron's next minute-tick, so this is usually
-    // the only place the email gets sent.
-    markTriggered: (id, detail) => {
-      const triggeredAt = Date.now()
-      set({
-        alerts: get().alerts.map((a) => (a.id === id ? { ...a, triggered: true, triggeredAt } : a)),
-      })
-      void api.triggerAlert(id, detail).catch((err: unknown) => {
-        console.error('[alertStore] failed to persist trigger, cron will catch it:', err)
-      })
-    },
-
-    updateLastEvaluatedPrice: (id, price) =>
-      set({ clientLastPrice: { ...get().clientLastPrice, [id]: price } }),
   }
 })

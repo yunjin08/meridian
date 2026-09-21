@@ -1,7 +1,7 @@
-// Pure alert-condition logic shared by the in-browser evaluator (useAlertEvaluator)
-// and the server-side cron (netlify/functions/alerts-cron.ts) so a condition reads
-// identically whether the tab is open or not. Alias-free (no `@/` imports) because
-// Netlify bundles the cron with esbuild and no path mapping — see CLAUDE.md rule 10.
+// Pure alert-condition logic for the server-side cron (netlify/functions/alerts-cron.ts).
+// Alias-free (no `@/` imports) because Netlify bundles the cron with esbuild and no
+// path mapping — see CLAUDE.md rule 10. `describeCondition` is the one export the
+// frontend also uses, for rendering and for the poll-driven notification body.
 
 import { formatPrice, formatNumber, lastValue } from './formatters.ts'
 import type { Alert } from '../types/alert.ts'
@@ -87,4 +87,18 @@ export function isPriceCondition(alert: Alert): boolean {
 
 export function isIndicatorCondition(alert: Alert): boolean {
   return !isPriceCondition(alert)
+}
+
+/** Human-readable condition, with no live value (evaluation is server-only now). */
+export function describeCondition(alert: Alert): string {
+  const { condition } = alert
+  switch (condition.type) {
+    case 'price_above':    return `Price > $${condition.threshold.toLocaleString()}`
+    case 'price_below':    return `Price < $${condition.threshold.toLocaleString()}`
+    case 'price_crosses':  return `Price crosses $${condition.threshold.toLocaleString()}`
+    case 'rsi_above':      return `RSI > ${condition.threshold}`
+    case 'rsi_below':      return `RSI < ${condition.threshold}`
+    case 'macd_crossover': return 'MACD crossover ↑'
+    case 'macd_crossunder':return 'MACD crossunder ↓'
+  }
 }

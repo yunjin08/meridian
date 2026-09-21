@@ -1,20 +1,8 @@
 import { useState } from 'react'
 import { useAlertStore } from '@/store/alertStore'
 import { formatTimestamp } from '@/lib/formatters'
+import { describeCondition } from '@/lib/alertEvaluation'
 import type { Alert } from '@/types/alert'
-
-function conditionLabel(alert: Alert): string {
-  const { condition } = alert
-  switch (condition.type) {
-    case 'price_above':    return `Price > $${condition.threshold.toLocaleString()}`
-    case 'price_below':    return `Price < $${condition.threshold.toLocaleString()}`
-    case 'price_crosses':  return `Price crosses $${condition.threshold.toLocaleString()}`
-    case 'rsi_above':      return `RSI > ${condition.threshold}`
-    case 'rsi_below':      return `RSI < ${condition.threshold}`
-    case 'macd_crossover': return 'MACD crossover ↑'
-    case 'macd_crossunder':return 'MACD crossunder ↓'
-  }
-}
 
 interface AlertItemProps {
   alert: Alert
@@ -44,7 +32,7 @@ export function AlertItem({ alert }: AlertItemProps) {
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-text-primary truncate">{alert.label}</div>
         <div className="text-text-muted font-mono mt-0.5">
-          <span className="text-text-muted/60">[{alert.symbol}]</span> {conditionLabel(alert)}
+          <span className="text-text-muted/60">[{alert.symbol}]</span> {describeCondition(alert)}
         </div>
         {alert.triggered && alert.triggeredAt !== null && (
           <div className="text-btc-orange mt-0.5">

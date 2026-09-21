@@ -17,11 +17,9 @@ import {
   insertAlert,
   listAlerts,
   setActive,
-  triggerAlert,
   SupabaseRepoError,
 } from './utils/alert-repo.ts'
 import { parseAlertInput, parseJsonBody, parsePatchInput, parseUuidParam } from './utils/alert-validation.ts'
-import { sendAlertEmail } from './utils/email.ts'
 
 async function handleGet(): Promise<HandlerResponse> {
   const alerts = await listAlerts()
@@ -44,24 +42,6 @@ async function handlePut(event: HandlerEvent): Promise<HandlerResponse> {
   if (!json.ok) return badRequest(json.error)
   const patch = parsePatchInput(json.value)
   if (!patch.ok) return badRequest(patch.error)
-
-  if ('trigger' in patch.value) {
-    const { alert, wasAlreadyTriggered } = await triggerAlert(id.value)
-    if (alert === null) return notFound()
-    // The browser evaluator reacts to price ticks far faster than the cron's
-    // once-a-minute cadence, so it is almost always the side that observes a
-    // fresh trigger first. Only the cron sends email on its own trigger path,
-    // so this call has to send it too — otherwise a tab being open silently
-    // suppresses the email every time.
-    if (!wasAlreadyTriggered) {
-      try {
-        await sendAlertEmail({ label: alert.label, detail: patch.value.detail ?? `${alert.label} triggered` })
-      } catch (err) {
-        console.error('[alerts] email send failed for browser-triggered alert:', err)
-      }
-    }
-    return ok({ alert })
-  }
 
   const alert = 'reset' in patch.value ? await clearTriggered(id.value) : await setActive(id.value, patch.value.active)
   if (alert === null) return notFound()

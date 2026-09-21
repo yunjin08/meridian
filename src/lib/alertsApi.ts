@@ -45,14 +45,6 @@ export async function setAlertActive(id: string, active: boolean): Promise<Alert
   return body.alert
 }
 
-export async function triggerAlert(id: string, detail: string): Promise<Alert> {
-  const body = await request<{ alert: Alert }>(`/alerts?id=${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ trigger: true, detail }),
-  })
-  return body.alert
-}
-
 export async function resetAlert(id: string): Promise<Alert> {
   const body = await request<{ alert: Alert }>(`/alerts?id=${encodeURIComponent(id)}`, {
     method: 'PUT',

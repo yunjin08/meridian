@@ -92,31 +92,6 @@ export async function setActive(id: string, active: boolean): Promise<Alert | nu
   return data === null ? null : toAlert(data)
 }
 
-/**
- * Sets the triggered latch. Called when the browser evaluator fires — which,
- * with a tab open, happens well ahead of the cron's next minute-tick. Reports
- * whether the alert was already triggered so the caller knows whether this is
- * a fresh transition (and should send the email itself) or a redundant call.
- */
-export async function triggerAlert(id: string): Promise<{ alert: Alert | null; wasAlreadyTriggered: boolean }> {
-  const { data: existing, error: selectError } = await getSupabase()
-    .from('alerts')
-    .select('triggered')
-    .eq('id', id)
-    .maybeSingle()
-  if (selectError) fail('triggerAlert:select', selectError)
-  const wasAlreadyTriggered = existing?.triggered ?? false
-
-  const { data, error } = await getSupabase()
-    .from('alerts')
-    .update({ triggered: true, triggered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .maybeSingle()
-  if (error) fail('triggerAlert:update', error)
-  return { alert: data === null ? null : toAlert(data), wasAlreadyTriggered }
-}
-
 /** Clears the triggered latch so the alert can fire again. Used by the manual reset button and the cron's auto-reset. */
 export async function clearTriggered(id: string): Promise<Alert | null> {
   const { data, error } = await getSupabase()

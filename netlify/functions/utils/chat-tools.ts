@@ -15,12 +15,13 @@ import type { CandlesResponse } from '../../../src/types/candle.ts'
 const WRITE_TOOLS: Anthropic.Tool[] = [
   {
     name: 'add_alert',
-    description: `Create a new alert for any asset in the dashboard (crypto or stock).
-Alerts fire browser notifications when the condition is met. Crypto alerts (symbols ending in USDT) also
-email the owner within a minute even if no tab is open, evaluated by a server-side cron. Stock alerts only
-fire the browser notification, since the cron only reaches Binance prices; mention this if asked about a stock alert.
-Use the exact symbol from the dashboard, e.g. BTCUSDT for Bitcoin, ETHUSDT for Ethereum, AAPL for Apple stock.
-For price conditions, use USD (stocks) or USDT (crypto).`,
+    description: `Create a new alert. Only crypto symbols (ending in USDT) are actually evaluated — a
+server-side cron checks Binance prices every minute and emails the owner within that minute on a
+trigger, tab open or not. Stock/REIT alerts (e.g. AAPL) can be created but nothing currently evaluates
+them — they will sit inactive forever. If asked to alert on a stock or REIT, say plainly that stock
+alerts aren't evaluated yet and won't fire, rather than creating one that silently does nothing.
+Use the exact symbol from the dashboard, e.g. BTCUSDT for Bitcoin, ETHUSDT for Ethereum.
+For price conditions on crypto, use USDT.`,
     input_schema: {
       type: 'object' as const,
       properties: {
