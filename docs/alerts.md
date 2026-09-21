@@ -6,33 +6,23 @@
 
 Alerts are created and deleted through the chat assistant's write tools (`add_alert`, `remove_alert`,
 `toggle_alert` in `netlify/functions/utils/chat-tools.ts`), applied by `useChat.ts`, and stored in
-Supabase (`alerts` table) — not localStorage. Two independent evaluators watch them:
+Supabase (`alerts` table) — not localStorage.
 
-- **Browser evaluator** (`useAlertEvaluator.ts`) — subscribes to live price/indicator store updates,
-  fires instant browser notifications while a tab is open, and optimistically marks the alert
-  triggered on the server so the cron doesn't re-fire it.
-- **Server cron** (`netlify/functions/alerts-cron.ts`) — a scheduled function that runs every minute,
-  independently evaluates the same conditions against fresh Binance data, and emails the owner via
-  Resend on a fresh trigger. Runs regardless of whether any browser tab is open.
-
-Both share the same pure condition logic in `src/lib/alertEvaluation.ts` (alias-free, per CLAUDE.md
-rule 10) so a condition reads identically in both places.
+**Evaluation is server-only.** `netlify/functions/alerts-cron.ts` is a scheduled function that runs
+every minute, checks every active alert against fresh Binance data using the pure condition logic in
+`src/lib/alertEvaluation.ts`, and emails the owner via Resend on a fresh trigger. The browser does not
+evaluate conditions at all — there is no WebSocket- or chart-driven client evaluator. This is
+deliberate: a client evaluator reacting to price ticks (~1/sec) would almost always beat the cron to
+marking a trigger, and since only the cron code path ever called Resend, that meant a tab being open
+silently prevented the email from ever sending. Removing client-side evaluation entirely removes that
+failure mode, at the cost of resolution: a condition can only be detected once a minute now, not
+sub-second.
 
 ```
 User asks the assistant → add_alert tool call → alertStore.addAlert() → POST /api/alerts → Supabase
 
-                    ┌── Browser (while tab open) ──────────────────────┐
-                    │  useBinanceWebSocket / useCandles                │
-                    │        │                                        │
-                    │  priceStore / chartStore.indicators              │
-                    │        │                                        │
-                    │  useAlertEvaluator → condition met?               │
-                    │        │                                        │
-                    │  Notification API  +  optimistic PUT (trigger)    │
-                    └───────────────────────────────────────────────────┘
-
-                    ┌── Server (always) ────────────────────────────────┐
-                    │  alerts-cron.ts (every minute)                    │
+                    ┌── Server (every minute, always) ─────────────────┐
+                    │  alerts-cron.ts                                   │
                     │        │                                        │
                     │  Binance ticker/klines for each active alert       │
                     │        │                                        │
@@ -40,27 +30,37 @@ User asks the assistant → add_alert tool call → alertStore.addAlert() → PO
                     │        │                                        │
                     │  markTriggered() in Supabase  +  Resend email      │
                     └───────────────────────────────────────────────────┘
+
+                    ┌── Browser (passive reflection, no evaluation) ────┐
+                    │  useAlertData.ts polls GET /api/alerts every 60s   │
+                    │        │                                        │
+                    │  alertStore.load() diffs previous vs next          │
+                    │        │                                        │
+                    │  fresh triggered:false→true?  →  Notification API │
+                    └───────────────────────────────────────────────────┘
 ```
 
-`useAlertData.ts` loads alerts on mount and polls every `ALERT_POLL_INTERVAL_MS` (60s, matching the
-cron cadence) so a trigger the cron set shows up in the UI without a refresh.
+The browser's `Notification` popup (`sendNotification` in `lib/notifications.ts`) is purely observational
+now — it fires when a poll notices an alert transitioned to `triggered` since the last poll, never from
+evaluating a condition itself. It can't reintroduce the old race because it never marks anything triggered
+or sends email; it only reflects what the cron already decided.
 
 ---
 
 ## Alert types
 
-| Condition type | Evaluates against | Fires when | Emailed by the cron? |
-|---------------|-------------------|-----------|----|
-| `price_above` | Live price (WS client-side, `ticker/price` server-side) | price > threshold | Yes, for crypto symbols |
-| `price_below` | Live price | price < threshold | Yes, for crypto symbols |
-| `price_crosses` | Live price | price crosses threshold in either direction | Yes, for crypto symbols |
-| `rsi_above` / `rsi_below` | RSI on the active chart timeframe (client) or the fixed `DEFAULT_TIMEFRAME` (cron) | RSI vs threshold | Yes, for crypto symbols |
-| `macd_crossover` / `macd_crossunder` | MACD vs signal line | line crosses signal | Yes, for crypto symbols |
+| Condition type | Evaluates against | Fires when |
+|---------------|-------------------|-----------|
+| `price_above` | `ticker/price` on Binance | price > threshold |
+| `price_below` | `ticker/price` on Binance | price < threshold |
+| `price_crosses` | `ticker/price` on Binance, compared to the cron's own `last_price` from the previous run | price crosses threshold in either direction |
+| `rsi_above` / `rsi_below` | RSI on `DEFAULT_TIMEFRAME` klines | RSI vs threshold |
+| `macd_crossover` / `macd_crossunder` | MACD vs signal line on `DEFAULT_TIMEFRAME` klines | line crosses signal |
 
-**Crypto only for email.** The cron fetches prices and klines from Binance, so only symbols Binance
-knows (anything ending `USDT`) get emailed. Stock alerts (e.g. `AAPL`) still fire the instant browser
-notification while a tab is open, but the cron silently skips them (logs a warning, sends no email) —
-see the limitation below.
+**Crypto only.** The cron only fetches Binance data, so only symbols Binance knows (anything ending
+`USDT`) are ever evaluated. Stock/REIT alerts (e.g. `AAPL`) can still be created through the chat tool,
+but nothing evaluates them — they sit inactive forever. The `add_alert` tool description tells the
+assistant to say so rather than silently create one. See the limitation below.
 
 ---
 
@@ -74,16 +74,15 @@ interface Alert {
   condition: AlertCondition   // discriminated union by type
   active: boolean             // user can pause without deleting
   triggered: boolean          // true after first fire; server-authoritative
-  triggeredAt: number | null  // Unix ms, set by whichever evaluator fires first
+  triggeredAt: number | null  // Unix ms, set by the cron
   createdAt: number
   autoReset: boolean          // re-arms after ALERT_AUTO_RESET_COOLDOWN_MS (price_crosses only)
 }
 ```
 
-The cron additionally tracks `last_price` per alert (its own copy of the previous tick, for
-`price_crosses` detection across separate cron runs). That field is never sent to the client — the
-browser keeps its own equivalent purely in memory (`alertStore.clientLastPrice`), since the two
-evaluators run on independent schedules and must not share cross-detection state.
+The cron additionally tracks `last_price` per alert — its own copy of the previous tick, for
+`price_crosses` detection across separate cron runs. That field is never sent to the client; the
+browser has no cross-detection state of its own since it never evaluates anything.
 
 **Legacy localStorage migration.** Alerts created before this feature shipped live under the
 `dashboard-alerts` localStorage key. On first load, if the server has no alerts, `alertStore.load()`
@@ -114,26 +113,16 @@ the two constants in `email.ts`.
 
 ---
 
-## Browser notification flow
-
-Unchanged from before this feature: `Notification.permission` gates `sendNotification()` in
-`useAlertEvaluator.ts`, deduplicated by `tag: alert.id`. This is purely a same-tab, instant-feedback
-channel — the email channel above is what reaches you when no tab is open.
-
----
-
 ## Limitations
 
-- **Stock alerts don't email.** The cron only reaches Binance. Stock/REIT alerts remain browser-only,
-  as before.
-- **Indicator alerts use a fixed timeframe server-side.** The client evaluates RSI/MACD against
-  whatever timeframe is on screen; the cron always uses `DEFAULT_TIMEFRAME` (`1h`), since it has no
-  concept of "the chart currently open." A client-side RSI alert can feel like it fires at a different
-  moment than the emailed one if you're charting a different timeframe.
-- **Up to ~1 minute of email latency.** The cron runs once a minute.
-- **A rare double-fire is possible.** If the browser and the cron evaluate the same crossing within
-  the same few hundred milliseconds, both a browser notification and an email could go out for the
-  same trigger. Not corrected with locking — accepted as a low-frequency, low-cost edge case for a
-  single-user dashboard.
+- **Stock alerts don't fire at all.** Not browser, not email. The cron only reaches Binance; there is
+  no browser evaluator to fall back on anymore. Only crypto (`*USDT`) alerts do anything.
+- **Detection resolution is one minute.** With no client-side evaluator, a fast intraday move that
+  crosses a threshold and moves back before the next cron tick can be missed entirely. This is the
+  deliberate tradeoff for making the server the single source of truth.
+- **Indicator alerts use a fixed timeframe.** RSI/MACD are always evaluated on `DEFAULT_TIMEFRAME`
+  (`1h`) klines, since the cron has no concept of "the chart currently open."
+- **Browser notifications lag by up to one poll interval** (`ALERT_POLL_INTERVAL_MS`, 60s) since they
+  now only reflect state the cron already wrote, rather than reacting to a live price tick.
 - **Auto-reset cooldown is 5 minutes** (`ALERT_AUTO_RESET_COOLDOWN_MS` in `constants.ts`). Only applies
-  to `price_crosses` with `autoReset: true`. Checked by both evaluators independently.
+  to `price_crosses` with `autoReset: true`, checked by the cron.

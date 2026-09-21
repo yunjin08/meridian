@@ -73,14 +73,10 @@ Explicitly out of scope for this module, left as follow-ups:
 - Chat-assistant tools for creating or editing tax entries.
 - A BIR public holiday calendar for deadline rollover (weekends are handled; holidays are not).
 
-### 9. Background alert notifications via Telegram or Pushover
+### 9. Background alert notifications — done
 
-Currently alerts only fire while the tab is open. The fix: when an alert triggers client-side, call a new Netlify Function (`/api/notify`) that posts to a Telegram bot or Pushover API. This delivers the notification even if the tab is later closed.
-
-**How:**
-1. Create `netlify/functions/notify.ts` — accepts `{ title, body }`, calls Telegram `sendMessage` or Pushover API.
-2. Add `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (or `PUSHOVER_USER_KEY` + `PUSHOVER_APP_TOKEN`) to env.
-3. In `useAlertEvaluator.ts`, after `sendNotification()`, also `fetch('/api/notify', { method: 'POST', body: ... })`.
+Alert evaluation moved fully server-side (`netlify/functions/alerts-cron.ts`, once a minute) with email
+via Resend, replacing the earlier browser-only evaluator. See `docs/alerts.md`.
 
 ### 10. Multi-symbol support
 

@@ -6,7 +6,7 @@ Personal Bitcoin trading dashboard. Single user. Serverless on Netlify.
 
 ## Project Description
 
-A real-time BTC/USDT trading dashboard connected to a personal Binance account. Shows live price, account balance, a candlestick chart with selectable timeframes, RSI/MACD/Bollinger Bands indicators, a browser-notification alert system for custom conditions, an Overview landing tab summarising crypto, stocks, and REITs, and a Tax tab for PH 8% flat-rate income tax with BIR deadline reminders.
+A real-time BTC/USDT trading dashboard connected to a personal Binance account. Shows live price, account balance, a candlestick chart with selectable timeframes, RSI/MACD/Bollinger Bands indicators, a server-evaluated alert system for custom conditions that emails and browser-notifies on a trigger, an Overview landing tab summarising crypto, stocks, and REITs, and a Tax tab for PH 8% flat-rate income tax with BIR deadline reminders.
 
 ---
 
@@ -117,8 +117,7 @@ src/
 │   ├── useBinanceWebSocket.ts  WS lifecycle, stream mgmt, exponential backoff reconnect
 │   ├── useCandles.ts           Fetch candles+indicators, debounced on timeframe change
 │   ├── useBalance.ts           Poll /api/balance every 30s, pause when tab hidden
-│   ├── useAlertEvaluator.ts    Subscribe to stores, evaluate conditions, fire notifications
-│   ├── useAlertData.ts         Load alerts on mount, poll every 60s so cron-set triggers show up
+│   ├── useAlertData.ts         Load alerts on mount, poll every 60s so cron-set triggers show up (all evaluation is server-side)
 │   ├── useTaxData.ts           Loads tax entries/filings once on mount
 │   ├── useTaxDeadlines.ts      Next actionable tax period + once-per-threshold notifications
 │   └── usePortfolioSummary.ts  Combines crypto/stock/REIT stores into one PortfolioSummary
@@ -135,7 +134,7 @@ src/
     ├── formatters.ts         Price/percent/BTC formatting, lastValue() helper
     ├── notifications.ts      Browser Notification API wrapper + permission flow
     ├── localStorage.ts       Manual localStorage read/write helpers
-    ├── alertEvaluation.ts     Alias-free condition logic shared by useAlertEvaluator and the alerts cron
+    ├── alertEvaluation.ts     Alias-free condition logic for the alerts cron (the only evaluator; also exports describeCondition for the UI)
     ├── alertsApi.ts           Fetch wrapper for /api/alerts
     ├── alertMigration.ts      One-time pull of pre-migration alerts out of localStorage
     ├── isoDate.ts             Alias-free ISO date parsing/formatting shared with functions
@@ -295,7 +294,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 ## Known Limitations (Phase 1)
 
-- Crypto alerts email regardless of whether a tab is open (via the `alerts-cron.ts` scheduled function, ~1 minute latency); stock/REIT alerts and the instant in-browser notification still require an open tab, since the cron only reaches Binance data. See `docs/alerts.md`.
+- Alert evaluation is server-only (`alerts-cron.ts`, once a minute) — crypto alerts email regardless of whether a tab is open, but detection resolution is bounded to one minute and stock/REIT alerts aren't evaluated at all. See `docs/alerts.md`.
 - Alerts are synced across devices via Supabase, but the chat transcript remains localStorage-only, not synced across devices or browsers.
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
