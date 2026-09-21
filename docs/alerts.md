@@ -5,8 +5,24 @@
 ## How it works
 
 Alerts are created, edited, and deleted through the chat assistant's write tools (`add_alert`,
-`edit_alert`, `remove_alert`, `toggle_alert` in `netlify/functions/utils/chat-tools.ts`), applied by
-`useChat.ts`, and stored in Supabase (`alerts` table) — not localStorage.
+`edit_alert`, `remove_alert`, `toggle_alert` in `netlify/functions/utils/chat-tools.ts`), stored in
+Supabase (`alerts` table) — not localStorage.
+
+**These four tools execute server-side, not in the browser** (`executeAlertTool` in `chat-tools.ts`,
+called from `chat.ts`'s tool loop). This matters: an earlier design had the model call a tool and the
+*browser* perform the actual mutation afterward, with the server telling the model "Applied: x" the
+instant the tool was called — before the browser had even received the response, let alone run it. If
+the client-side apply ever failed (stale cached JS not recognizing a newer tool, a thrown error, a
+race), the model had already told the user it succeeded, with no way to retract that. It happened in
+practice: `remove_alert` fired for two alerts, the follow-up recreation never reached the database, and
+the chat confidently reported "both updated" anyway. Now the mutation happens directly against
+Supabase inside the tool call, using the same repo functions `alerts.ts` uses, and the model receives
+the *real* result — `Applied: x` only on an actual success, `Failed: x — <reason>` (as an `is_error`
+tool result) otherwise. The browser's `AppliedTool.result` then carries that same outcome for the UI to
+sync from (`alertStore.applySyncedAlert`/`applySyncedRemoval` — no second network round-trip, since the
+mutation already happened). The portfolio watchlist tools (`add_symbol`/`remove_symbol`) still work the
+old fire-and-forget way, because that data is still localStorage-only with no server side to execute
+against — that's the one remaining case where the model can't verify what actually happened.
 
 `edit_alert` is a partial update: only the fields the model includes (`label`, `condition`,
 `autoReset`) change, everything else keeps its stored value. The dashboard context sent to the model

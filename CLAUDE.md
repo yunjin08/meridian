@@ -65,10 +65,10 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `stock-positions.ts` | `GET /api/stock-positions` | Basic (Trading 212) | Open positions + account summary |
 | `crypto-pnl.ts` | `GET /api/crypto-pnl` | HMAC signed | Per-coin cost basis and net P&L from spot fills, fiat orders and P2P trades, plus the daily spent-vs-value curve |
 | `utils/binance-holdings.ts` | — | — | Wallet totals, price map, USDT pricing shared by balance and crypto-pnl |
-| `chat.ts` | `POST /api/chat` | Session | Assistant loop: five write tools applied by the browser, three read tools executed server-side |
+| `chat.ts` | `POST /api/chat` | Session | Assistant loop: four alert write tools and four read tools executed server-side, two portfolio-watchlist write tools applied by the browser |
 | `analyze.ts` | `POST /api/analyze` | Session | Forced-tool structured read of the active chart |
 | `macro.ts` | `GET /api/macro` | Session | FRED macro snapshot plus crypto market stats, same data the chat read tools see |
-| `utils/chat-tools.ts` | — | — | Chat tool schemas, read-tool executor, compact result formatting |
+| `utils/chat-tools.ts` | — | — | Chat tool schemas, read-tool and alert-tool executors, compact result formatting |
 | `utils/market-data.ts` | — | — | FRED, CoinGecko, Fear & Greed, Binance Futures fetchers with a module-level TTL cache |
 | `utils/klines.ts` | — | — | Kline fetch + parse + indicators shared by candles.ts and the get_candles tool |
 | `utils/v2.ts` | — | — | Request/HandlerEvent adapters so AI functions can run as Functions 2.0 |
