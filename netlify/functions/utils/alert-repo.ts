@@ -1,10 +1,11 @@
-import { getSupabase, type AlertRow, type AlertUpdate } from './supabase-client.ts'
+import { desc, eq } from 'drizzle-orm'
+import { getDb, schema } from './db.ts'
 import type { Alert, AlertCondition, AlertEditFields, AlertInput } from '../../../src/types/alert.ts'
 
-export class SupabaseRepoError extends Error {
+export class AlertRepoError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'SupabaseRepoError'
+    this.name = 'AlertRepoError'
   }
 }
 
@@ -13,9 +14,16 @@ export interface CronAlert extends Alert {
   lastPrice: number | null
 }
 
-function fail(context: string, error: { message: string }): never {
-  console.error(`[alert-repo] ${context}:`, error.message)
-  throw new SupabaseRepoError(error.message)
+type AlertRow = typeof schema.alerts.$inferSelect
+
+async function run<T>(context: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[alert-repo] ${context}:`, message)
+    throw new AlertRepoError(message)
+  }
 }
 
 function toCondition(type: string, threshold: number | null): AlertCondition {
@@ -24,9 +32,9 @@ function toCondition(type: string, threshold: number | null): AlertCondition {
   return { type: type as 'price_above' | 'price_below' | 'price_crosses', threshold: threshold ?? 0 }
 }
 
-function conditionColumns(condition: AlertCondition): { condition_type: string; threshold: number | null } {
-  if ('threshold' in condition) return { condition_type: condition.type, threshold: condition.threshold }
-  return { condition_type: condition.type, threshold: null }
+function conditionColumns(condition: AlertCondition): { conditionType: string; threshold: string | null } {
+  if ('threshold' in condition) return { conditionType: condition.type, threshold: String(condition.threshold) }
+  return { conditionType: condition.type, threshold: null }
 }
 
 function toAlert(row: AlertRow): Alert {
@@ -34,72 +42,70 @@ function toAlert(row: AlertRow): Alert {
     id: row.id,
     label: row.label,
     symbol: row.symbol,
-    condition: toCondition(row.condition_type, row.threshold === null ? null : Number(row.threshold)),
+    condition: toCondition(row.conditionType, row.threshold === null ? null : Number(row.threshold)),
     active: row.active,
     triggered: row.triggered,
-    triggeredAt: row.triggered_at === null ? null : Date.parse(row.triggered_at),
-    createdAt: Date.parse(row.created_at),
-    autoReset: row.auto_reset,
+    triggeredAt: row.triggeredAt === null ? null : Date.parse(row.triggeredAt),
+    createdAt: Date.parse(row.createdAt),
+    autoReset: row.autoReset,
   }
 }
 
 function toCronAlert(row: AlertRow): CronAlert {
-  return { ...toAlert(row), lastPrice: row.last_price === null ? null : Number(row.last_price) }
+  return { ...toAlert(row), lastPrice: row.lastPrice === null ? null : Number(row.lastPrice) }
 }
 
 export async function listAlerts(): Promise<Alert[]> {
-  const { data, error } = await getSupabase()
-    .from('alerts')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) fail('listAlerts', error)
-  return (data ?? []).map(toAlert)
+  return run('listAlerts', async () => {
+    const rows = await getDb().select().from(schema.alerts).orderBy(desc(schema.alerts.createdAt))
+    return rows.map(toAlert)
+  })
 }
 
 export async function insertAlert(input: AlertInput): Promise<Alert> {
-  const cols = conditionColumns(input.condition)
-  const { data, error } = await getSupabase()
-    .from('alerts')
-    .insert({
-      label: input.label,
-      symbol: input.symbol,
-      condition_type: cols.condition_type,
-      threshold: cols.threshold,
-      active: true,
-      triggered: false,
-      auto_reset: input.autoReset,
-    })
-    .select('*')
-    .single()
-  if (error) fail('insertAlert', error)
-  return toAlert(data)
+  return run('insertAlert', async () => {
+    const cols = conditionColumns(input.condition)
+    const [row] = await getDb()
+      .insert(schema.alerts)
+      .values({
+        label: input.label,
+        symbol: input.symbol,
+        conditionType: cols.conditionType,
+        threshold: cols.threshold,
+        active: true,
+        triggered: false,
+        autoReset: input.autoReset,
+      })
+      .returning()
+    if (!row) throw new Error('insert returned no row')
+    return toAlert(row)
+  })
 }
 
 export async function deleteAlert(id: string): Promise<boolean> {
-  const { data, error } = await getSupabase().from('alerts').delete().eq('id', id).select('id')
-  if (error) fail('deleteAlert', error)
-  return (data ?? []).length > 0
+  return run('deleteAlert', async () => {
+    const rows = await getDb().delete(schema.alerts).where(eq(schema.alerts.id, id)).returning({ id: schema.alerts.id })
+    return rows.length > 0
+  })
 }
 
 export async function setActive(id: string, active: boolean): Promise<Alert | null> {
-  const { data, error } = await getSupabase()
-    .from('alerts')
-    .update({ active, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .maybeSingle()
-  if (error) fail('setActive', error)
-  return data === null ? null : toAlert(data)
+  return run('setActive', async () => {
+    const [row] = await getDb()
+      .update(schema.alerts)
+      .set({ active, updatedAt: new Date().toISOString() })
+      .where(eq(schema.alerts.id, id))
+      .returning()
+    return row === undefined ? null : toAlert(row)
+  })
 }
 
 /** Flips active on or off. Read-then-write, not atomic — fine for a single-user app. */
 export async function toggleActive(id: string): Promise<Alert | null> {
-  const { data: existing, error: selectError } = await getSupabase()
-    .from('alerts')
-    .select('active')
-    .eq('id', id)
-    .maybeSingle()
-  if (selectError) fail('toggleActive:select', selectError)
+  const existing = await run('toggleActive:select', async () => {
+    const [row] = await getDb().select({ active: schema.alerts.active }).from(schema.alerts).where(eq(schema.alerts.id, id))
+    return row ?? null
+  })
   if (existing === null) return null
   return setActive(id, !existing.active)
 }
@@ -110,50 +116,54 @@ export async function toggleActive(id: string): Promise<Alert | null> {
  * the old trigger meant no longer applies to the new condition.
  */
 export async function updateAlert(id: string, fields: AlertEditFields): Promise<Alert | null> {
-  const update: AlertUpdate = { updated_at: new Date().toISOString() }
-  if (fields.label !== undefined) update.label = fields.label
-  if (fields.condition !== undefined) {
-    const cols = conditionColumns(fields.condition)
-    update.condition_type = cols.condition_type
-    update.threshold = cols.threshold
-    update.triggered = false
-    update.triggered_at = null
-    update.last_price = null
-  }
-  if (fields.autoReset !== undefined) update.auto_reset = fields.autoReset
+  return run('updateAlert', async () => {
+    const update: Partial<typeof schema.alerts.$inferInsert> = { updatedAt: new Date().toISOString() }
+    if (fields.label !== undefined) update.label = fields.label
+    if (fields.condition !== undefined) {
+      const cols = conditionColumns(fields.condition)
+      update.conditionType = cols.conditionType
+      update.threshold = cols.threshold
+      update.triggered = false
+      update.triggeredAt = null
+      update.lastPrice = null
+    }
+    if (fields.autoReset !== undefined) update.autoReset = fields.autoReset
 
-  const { data, error } = await getSupabase().from('alerts').update(update).eq('id', id).select('*').maybeSingle()
-  if (error) fail('updateAlert', error)
-  return data === null ? null : toAlert(data)
+    const [row] = await getDb().update(schema.alerts).set(update).where(eq(schema.alerts.id, id)).returning()
+    return row === undefined ? null : toAlert(row)
+  })
 }
 
 /** Clears the triggered latch so the alert can fire again. Used by the manual reset button and the cron's auto-reset. */
 export async function clearTriggered(id: string): Promise<Alert | null> {
-  const { data, error } = await getSupabase()
-    .from('alerts')
-    .update({ triggered: false, triggered_at: null, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .maybeSingle()
-  if (error) fail('clearTriggered', error)
-  return data === null ? null : toAlert(data)
+  return run('clearTriggered', async () => {
+    const [row] = await getDb()
+      .update(schema.alerts)
+      .set({ triggered: false, triggeredAt: null, updatedAt: new Date().toISOString() })
+      .where(eq(schema.alerts.id, id))
+      .returning()
+    return row === undefined ? null : toAlert(row)
+  })
 }
 
 export async function listActiveAlerts(): Promise<CronAlert[]> {
-  const { data, error } = await getSupabase().from('alerts').select('*').eq('active', true)
-  if (error) fail('listActiveAlerts', error)
-  return (data ?? []).map(toCronAlert)
+  return run('listActiveAlerts', async () => {
+    const rows = await getDb().select().from(schema.alerts).where(eq(schema.alerts.active, true))
+    return rows.map(toCronAlert)
+  })
 }
 
 export async function markTriggered(id: string, triggeredAt: string): Promise<void> {
-  const { error } = await getSupabase()
-    .from('alerts')
-    .update({ triggered: true, triggered_at: triggeredAt, updated_at: triggeredAt })
-    .eq('id', id)
-  if (error) fail('markTriggered', error)
+  await run('markTriggered', async () => {
+    await getDb()
+      .update(schema.alerts)
+      .set({ triggered: true, triggeredAt, updatedAt: triggeredAt })
+      .where(eq(schema.alerts.id, id))
+  })
 }
 
 export async function updateLastPrice(id: string, lastPrice: number): Promise<void> {
-  const { error } = await getSupabase().from('alerts').update({ last_price: lastPrice }).eq('id', id)
-  if (error) fail('updateLastPrice', error)
+  await run('updateLastPrice', async () => {
+    await getDb().update(schema.alerts).set({ lastPrice: String(lastPrice) }).where(eq(schema.alerts.id, id))
+  })
 }

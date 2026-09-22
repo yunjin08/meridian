@@ -18,7 +18,7 @@ import {
   listAlerts,
   setActive,
   updateAlert,
-  SupabaseRepoError,
+  AlertRepoError,
 } from './utils/alert-repo.ts'
 import { parseAlertInput, parseJsonBody, parsePatchInput, parseUuidParam } from './utils/alert-validation.ts'
 
@@ -75,8 +75,8 @@ export const handler: Handler = async (event) => {
       default:       return methodNotAllowed()
     }
   } catch (err) {
-    if (err instanceof SupabaseRepoError) {
-      return badGateway('supabase_error', { msg: err.message })
+    if (err instanceof AlertRepoError) {
+      return badGateway('database_error', { msg: err.message })
     }
     console.error('[alerts] unexpected error:', err)
     return internalError('internal_error')

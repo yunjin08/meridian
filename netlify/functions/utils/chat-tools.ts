@@ -9,7 +9,7 @@ import {
   listAlerts,
   toggleActive,
   updateAlert,
-  SupabaseRepoError,
+  AlertRepoError,
 } from './alert-repo.ts'
 import { parseAlertInput, parsePatchInput, parseUuidParam } from './alert-validation.ts'
 import { findDuplicateAlert } from '../../../src/lib/alertDedupe.ts'
@@ -213,7 +213,7 @@ export async function executeAlertTool(name: ChatAlertToolName, input: unknown):
       }
     }
   } catch (err) {
-    if (err instanceof SupabaseRepoError) return { ok: false, error: `database error: ${err.message}` }
+    if (err instanceof AlertRepoError) return { ok: false, error: `database error: ${err.message}` }
     console.error(`[chat-tools] ${name} failed unexpectedly:`, err)
     return { ok: false, error: 'unexpected server error' }
   }
