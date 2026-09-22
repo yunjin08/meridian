@@ -85,7 +85,7 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `utils/alert-validation.ts` | — | — | Request body/param validation for the alerts handler |
 | `utils/email.ts` | — | — | Resend REST wrapper; fixed sender/recipient, no-ops (logs) if RESEND_API_KEY is missing |
 | `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
-| `utils/db.ts` | — | — | Lazy Drizzle client via `@netlify/database`'s `getConnectionString()` — resolves the right branch automatically (prod/preview/local dev) |
+| `utils/db.ts` | — | — | Lazy Drizzle client reading `NETLIFY_DB_URL` from `process.env` directly; only reachable from a Functions 2.0 module (rule 12) |
 | `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Netlify Database (Drizzle) |
 | `utils/tax-validation.ts` | — | — | Request body/param validation for tax handlers |
 | `utils/binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
@@ -203,10 +203,14 @@ RESEND_API_KEY=...              # sends alert-triggered emails; missing = alerts
 ```
 
 `ANTHROPIC_API_KEY` is not set by hand: Netlify's AI Gateway injects it (see
-`docs/ai-analysis.md`). `NETLIFY_DATABASE_URL` likewise is not set by hand — Netlify Database
-injects it per branch (production, deploy preview, or `netlify dev` locally), which
-`utils/db.ts`'s `getConnectionString()` resolves automatically. There is no manual database
-env var to configure.
+`docs/ai-analysis.md`). `NETLIFY_DB_URL` likewise is not set by hand — Netlify Database injects
+it per branch (production, deploy preview, or `netlify dev` locally). Despite the docs naming it
+`NETLIFY_DATABASE_URL`, the installed `@netlify/database` version actually injects `NETLIFY_DB_URL`;
+`utils/db.ts` reads `process.env` directly and checks both names, rather than going through
+`@netlify/database`'s own `getDatabase()`, because that function reads through a scoped
+`globalThis.Netlify.env` accessor that did not reliably see the variable for a function added in a
+deploy after the database was first connected. There is no manual database env var to configure —
+but see rule 12 below: this only reaches a function that is a Functions 2.0 module.
 
 A passkey is bound to one origin, so `localhost` and production hold separate
 registrations. Registering on the dev server does not sign you in on production.
@@ -287,7 +291,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 11. **Owner sign-in is passphrase OR passkey, never both as factors.** A passkey login mints the same `dashboard_session` cookie `login.ts` mints, so nothing downstream of auth knows which was used. The passphrase is the recovery path and must never be removed. The `meridian.passkey.*` localStorage keys are UX hints only: the server decides every outcome regardless of what they say.
 
-12. **Functions that call a model must be Functions 2.0 modules.** Netlify's AI Gateway injects `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` only into the v2 runtime (`export default async (req: Request)` plus `export const config = { path }`), never into a classic `export const handler`. Wrap an event-based body with `asV2` from `utils/v2.ts` so auth and the HTTP helpers still apply. See `docs/ai-analysis.md`.
+12. **Functions that call a model, or touch the database, must be Functions 2.0 modules.** Netlify's AI Gateway injects `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`, and Netlify Database injects `NETLIFY_DB_URL`, only into the v2 runtime (`export default async (req: Request)` plus `export const config = { path }`), never into a classic `export const handler`. This was discovered the hard way: every DB-touching function was originally a classic handler and silently could not connect in production. Wrap an event-based body with `asV2` from `utils/v2.ts` so auth and the HTTP helpers still apply. See `docs/ai-analysis.md`.
 
 13. **The WebAuthn challenge is a signed cookie, not a table.** `createChallengeCookie` / `readChallengeCookie` in `utils/auth.ts` carry it across the two-step ceremony with a 2 minute TTL. Do not add a challenges table.
 
