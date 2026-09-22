@@ -66,11 +66,14 @@ When `connectionStatus === 'failed'` (after 5 WS reconnect attempts), the UI sho
 
 **Done: Overview tab and Tax module.** The Overview landing tab (portfolio hero, per-class cards, allocation bar, top holdings) and the Tax tab (PH 8% flat-rate income tax, period cards, entry form, BIR deadline banner and browser notifications) are built, backed by Netlify Database for tax records. See `CLAUDE.md` for the architecture.
 
+**Done: chat-assistant tax tools.** `add_tax_entry`, `edit_tax_entry`, `remove_tax_entry`,
+`mark_tax_filed`, `unmark_tax_filed` execute server-side; the assistant also sees period summaries,
+the next actionable deadline, and recent entries in its context. See `netlify/functions/chat.ts`.
+
 Explicitly out of scope for this module, left as follow-ups:
 - Taxation of trading gains (the current module only covers the 8% flat-rate income tax on gross receipts, not capital gains from crypto or stock trades).
 - The mixed-income formula (compensation income plus business income taxed under the graduated table).
 - Receipts recorded in currencies other than PHP.
-- Chat-assistant tools for creating or editing tax entries.
 - A BIR public holiday calendar for deadline rollover (weekends are handled; holidays are not).
 
 ### 9. Background alert notifications — done
