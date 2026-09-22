@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { preflight, ok, badRequest, methodNotAllowed, internalError, badGateway, corsHeaders } from './utils/http.ts'
 import { requireAuth } from './utils/auth.ts'
 import { toHandlerEvent, toResponse } from './utils/v2.ts'
-import { CHAT_TOOLS, executeAlertTool, executeReadTool, isAlertTool, isReadTool } from './utils/chat-tools.ts'
+import { CHAT_TOOLS, executeAlertTool, executeReadTool, executeTaxTool, isAlertTool, isReadTool, isTaxTool } from './utils/chat-tools.ts'
 import type { DashboardContext, ChatRequest, ChatApiResponse, AppliedTool, ChatLookup, ChatStreamEvent, ChatToolName } from '../../src/types/chat.ts'
 
 const MODEL = 'claude-haiku-4-5-20251001'
@@ -24,11 +24,12 @@ const CUT_SHORT_NOTE = '\n\n(Reply cut short at the length limit. Ask me to cont
 // caches prefixes of 4096+ tokens, so today this is a no-cost preparation; the
 // run log's cacheRead field shows when it starts to pay.
 const STATIC_INSTRUCTIONS = `You are a concise investing assistant embedded in a personal multi-asset dashboard.
-You can answer questions about live data AND manage alerts and the portfolio watchlist using tools.
-Be brief and factual: one or two sentences for informational answers.
-Do not give financial advice. Alert tools return a real result — on success confirm exactly what
-changed; on failure (you'll get an error result), tell the user plainly what went wrong and do not
-claim the change happened.
+You can answer questions about live data AND manage alerts, tax records, and the portfolio watchlist
+using tools. Be brief and factual: one or two sentences for informational answers.
+Do not give financial advice. Alert and tax tools return a real result — on success confirm exactly
+what changed; on failure (you'll get an error result), tell the user plainly what went wrong and do
+not claim the change happened. edit_tax_entry is a full replace: when the user only wants to change
+one field, resend the entry's current values for the rest, taken from the TAX section below.
 
 You also have lookup tools. Use get_macro_snapshot for interest rates, inflation, the Fed, yields,
 the dollar or the macro backdrop; get_crypto_market for sentiment, fear and greed, dominance, funding
@@ -190,6 +191,32 @@ PRICE (${ctx.activeSymbol}):
     }
   }
 
+  // Tax (PH 8% flat-rate income tax)
+  const tax = ctx.tax
+  if (tax === null) {
+    prompt += `\n\nTAX: No income entries or filings recorded yet`
+  } else {
+    const php = (n: number) => `₱${fmt(n)}`
+    prompt += `\n\nTAX (PH 8% flat-rate, year ${tax.selectedYear} shown — use IDs to edit/remove entries):`
+    if (tax.nextActionable) {
+      const n = tax.nextActionable
+      prompt += `\nNext actionable: ${n.period} ${n.taxYear}, due ${n.deadline}, tax due ${php(n.taxDuePhp)}`
+    } else {
+      prompt += `\nNo period is currently due or overdue.`
+    }
+    prompt += `\nPeriods for ${tax.selectedYear}:`
+    for (const p of tax.periods) {
+      const filed = p.filing ? ` (filed ${p.filing.filedOn}, paid ${php(p.filing.amountPaidPhp)})` : ''
+      prompt += `\n- ${p.period}: gross ${php(p.grossPhp)}, tax due ${php(p.taxDuePhp)}, deadline ${p.deadline} — ${p.status}${filed}`
+    }
+    if (tax.recentEntries.length > 0) {
+      prompt += `\nRecent entries (most recent first, capped):`
+      for (const e of tax.recentEntries) {
+        prompt += `\n- ID ${e.id} | ${e.receivedOn} | ${e.source} | ${php(e.amountPhp)}${e.note ? ` | ${e.note}` : ''}`
+      }
+    }
+  }
+
   return prompt
 }
 
@@ -293,18 +320,21 @@ async function runTurn(
         }
 
         // Read tools run here and feed real data back. Alert tools also run
-        // here now — alerts are Supabase-backed, so there's a real result to
-        // give the model. Only the portfolio-watchlist tools are still just
-        // recorded, because that data lives in localStorage the browser owns.
-        // Independent lookups in one turn run in parallel.
+        // here now — alerts and tax records are Netlify Database-backed, so
+        // there's a real result to give the model. Only the portfolio-watchlist
+        // tools are still just recorded, because that data lives in
+        // localStorage the browser owns. Independent lookups in one turn run
+        // in parallel.
         const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
           toolBlocks.map(async (block) => {
             if (isReadTool(block.name)) {
               const outcome = await executeReadTool(block.name, block.input, context)
               return { type: 'tool_result' as const, tool_use_id: block.id, content: outcome.content, lookup: outcome.lookup }
             }
-            if (isAlertTool(block.name)) {
-              const result = await executeAlertTool(block.name, block.input)
+            if (isAlertTool(block.name) || isTaxTool(block.name)) {
+              const result = isAlertTool(block.name)
+                ? await executeAlertTool(block.name, block.input)
+                : await executeTaxTool(block.name, block.input)
               const applied: AppliedTool = { name: block.name, input: block.input, result }
               appliedTools.push(applied)
               hooks.onApplied?.(applied)

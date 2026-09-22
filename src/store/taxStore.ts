@@ -17,6 +17,11 @@ interface TaxState {
   removeEntry: (id: string) => Promise<void>
   markFiled: (input: TaxFiling) => Promise<void>
   unmarkFiled: (taxYear: number, period: TaxPeriod) => Promise<void>
+  /** Local-only sync for a mutation the chat assistant already ran server-side — no network call. */
+  applySyncedEntry: (entry: TaxIncomeEntry) => void
+  applySyncedEntryRemoval: (id: string) => void
+  applySyncedFiling: (filing: TaxFiling) => void
+  applySyncedFilingRemoval: (taxYear: number, period: TaxPeriod) => void
 }
 
 function sortEntries(entries: TaxIncomeEntry[]): TaxIncomeEntry[] {
@@ -95,5 +100,21 @@ export const useTaxStore = create<TaxState>()((set, get) => {
         await api.deleteFiling(taxYear, period)
         set({ filings: get().filings.filter((f) => !(f.taxYear === taxYear && f.period === period)) })
       }),
+
+    applySyncedEntry: (entry) => {
+      const entries = get().entries
+      const exists = entries.some((e) => e.id === entry.id)
+      set({ entries: sortEntries(exists ? entries.map((e) => (e.id === entry.id ? entry : e)) : [...entries, entry]) })
+    },
+
+    applySyncedEntryRemoval: (id) => set({ entries: get().entries.filter((e) => e.id !== id) }),
+
+    applySyncedFiling: (filing) => {
+      const others = get().filings.filter((f) => !(f.taxYear === filing.taxYear && f.period === filing.period))
+      set({ filings: [...others, filing] })
+    },
+
+    applySyncedFilingRemoval: (taxYear, period) =>
+      set({ filings: get().filings.filter((f) => !(f.taxYear === taxYear && f.period === period)) }),
   }
 })

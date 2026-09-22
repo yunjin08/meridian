@@ -1,5 +1,6 @@
 import type { StockAccountSummary, StockHolding, StockPosition, StockQuote } from './portfolio.ts'
 import type { Alert } from './alert.ts'
+import type { TaxFiling, TaxIncomeEntry, TaxPeriod, TaxPeriodStatus } from './tax.ts'
 
 export interface ChatMessage {
   id: string
@@ -59,6 +60,24 @@ export interface DashboardContext {
   /** What the Overview tab shows, so the assistant can speak to the whole position. */
   portfolio: ChatPortfolioContext | null
   pnl: ChatPnlContext | null
+  tax: ChatTaxContext | null
+}
+
+export interface ChatTaxContext {
+  selectedYear: number
+  /** Most recent entries across all years, capped by the client. Full-year totals below are not capped. */
+  recentEntries: Array<{ id: string; receivedOn: string; source: string; amountPhp: number; note: string | null }>
+  periods: Array<{
+    taxYear: number
+    period: TaxPeriod
+    deadline: string
+    status: TaxPeriodStatus
+    grossPhp: number
+    taxDuePhp: number
+    filing: TaxFiling | null
+  }>
+  /** Earliest overdue or due-soon period across the current and prior year, if any. */
+  nextActionable: { taxYear: number; period: TaxPeriod; deadline: string; taxDuePhp: number } | null
 }
 
 export type ChatAssetClass = 'crypto' | 'stock' | 'reit'
@@ -124,28 +143,35 @@ export interface ChatRequest {
   context: DashboardContext
 }
 
-// Alert tools execute server-side (see chat-tools.ts's executeAlertTool). The
-// portfolio-watchlist tools still only live in localStorage, so the browser
-// applies those itself.
+// Alert and tax tools execute server-side (see chat-tools.ts's executeAlertTool
+// / executeTaxTool). The portfolio-watchlist tools still only live in
+// localStorage, so the browser applies those itself.
 export type ChatAlertToolName = 'add_alert' | 'edit_alert' | 'remove_alert' | 'toggle_alert'
-export type ChatToolName = ChatAlertToolName | 'add_symbol' | 'remove_symbol'
+export type ChatTaxToolName = 'add_tax_entry' | 'edit_tax_entry' | 'remove_tax_entry' | 'mark_tax_filed' | 'unmark_tax_filed'
+export type ChatToolName = ChatAlertToolName | ChatTaxToolName | 'add_symbol' | 'remove_symbol'
 
 // Read tools: executed inside the function, their text goes back to the model.
 export type ChatReadToolName = 'get_macro_snapshot' | 'get_crypto_market' | 'get_candles' | 'get_stock_quote'
 
-// Alert tools (add/edit/remove/toggle) execute server-side now, so the model
-// gets a real result instead of an unconditional "Applied". Portfolio-watchlist
-// tools (add_symbol/remove_symbol) still live in localStorage only and remain
+// Alert/tax tools execute server-side, so the model gets a real result
+// instead of an unconditional "Applied". Portfolio-watchlist tools
+// (add_symbol/remove_symbol) still live in localStorage only and remain
 // client-applied — `result` is absent for those.
 export type AlertToolResult =
   | { ok: true; alert: Alert }
   | { ok: true; removed: true }
   | { ok: false; error: string }
 
+export type TaxToolResult =
+  | { ok: true; entry: TaxIncomeEntry }
+  | { ok: true; filing: TaxFiling }
+  | { ok: true; removed: true }
+  | { ok: false; error: string }
+
 export interface AppliedTool {
   name: ChatToolName
   input: unknown
-  result?: AlertToolResult
+  result?: AlertToolResult | TaxToolResult
 }
 
 export interface ChatLookup {

@@ -40,6 +40,7 @@ const context = {
   alerts: [],
   portfolio: null,
   pnl: null,
+  tax: null,
 } satisfies DashboardContext
 
 const contextWithPnl = {

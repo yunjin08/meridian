@@ -13,8 +13,23 @@ import {
 } from './alert-repo.ts'
 import { parseAlertInput, parsePatchInput, parseUuidParam } from './alert-validation.ts'
 import { findDuplicateAlert } from '../../../src/lib/alertDedupe.ts'
+import { deleteEntry, deleteFiling, insertEntry, updateEntry, upsertFiling, TaxRepoError } from './tax-repo.ts'
+import {
+  parseEntryInput,
+  parseFilingInput,
+  parsePeriodParam,
+  parseUuidParam as parseTaxUuidParam,
+} from './tax-validation.ts'
 import type { FinnhubQuote } from '../../../src/types/finnhub.ts'
-import type { AlertToolResult, ChatAlertToolName, ChatLookup, ChatReadToolName, DashboardContext } from '../../../src/types/chat.ts'
+import type {
+  AlertToolResult,
+  ChatAlertToolName,
+  ChatLookup,
+  ChatReadToolName,
+  ChatTaxToolName,
+  DashboardContext,
+  TaxToolResult,
+} from '../../../src/types/chat.ts'
 import type { CryptoMarketSnapshot, MacroSeriesPoint, MacroSnapshot } from '../../../src/types/market.ts'
 import type { CandlesResponse } from '../../../src/types/candle.ts'
 
@@ -124,6 +139,76 @@ already triggered.`,
     },
   },
   {
+    name: 'add_tax_entry',
+    description: `Record a PHP income receipt for the 8% flat-rate tax. Use the exact date the money
+was received, not the invoice date. Amounts are in PHP.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        receivedOn: { type: 'string', description: 'Date received, YYYY-MM-DD' },
+        source: { type: 'string', description: 'Client or payer name' },
+        amountPhp: { type: 'number', description: 'Gross amount received, in PHP' },
+        note: { type: 'string', description: 'Optional free-text note' },
+      },
+      required: ['receivedOn', 'source', 'amountPhp'],
+    },
+  },
+  {
+    name: 'edit_tax_entry',
+    description: `Replace an existing tax entry's fields. This is a full replace, not a partial
+update — resend every field (receivedOn, source, amountPhp), reusing the current values for whatever
+is not changing. Look up the ID and current values from the tax entries in context.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'UUID of the entry to edit' },
+        receivedOn: { type: 'string', description: 'Date received, YYYY-MM-DD' },
+        source: { type: 'string', description: 'Client or payer name' },
+        amountPhp: { type: 'number', description: 'Gross amount received, in PHP' },
+        note: { type: 'string', description: 'Optional free-text note' },
+      },
+      required: ['id', 'receivedOn', 'source', 'amountPhp'],
+    },
+  },
+  {
+    name: 'remove_tax_entry',
+    description: 'Permanently delete a tax income entry by its ID.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'UUID of the entry to delete' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'mark_tax_filed',
+    description: `Record that a tax period (quarter or annual) has been filed with the BIR. Creates
+the filing if it does not exist, or updates it if it does.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        taxYear: { type: 'number', description: 'Calendar year, e.g. 2026' },
+        period: { type: 'string', enum: ['Q1', 'Q2', 'Q3', 'ANNUAL'] },
+        filedOn: { type: 'string', description: 'Date filed, YYYY-MM-DD' },
+        amountPaidPhp: { type: 'number', description: 'Amount actually paid to the BIR, in PHP' },
+      },
+      required: ['taxYear', 'period', 'filedOn', 'amountPaidPhp'],
+    },
+  },
+  {
+    name: 'unmark_tax_filed',
+    description: 'Remove a filing record, marking that period as not filed again.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        taxYear: { type: 'number', description: 'Calendar year, e.g. 2026' },
+        period: { type: 'string', enum: ['Q1', 'Q2', 'Q3', 'ANNUAL'] },
+      },
+      required: ['taxYear', 'period'],
+    },
+  },
+  {
     name: 'add_symbol',
     description: 'Add a stock or REIT ticker to the portfolio watchlist so it appears in the Stocks/REITs tab.',
     input_schema: {
@@ -161,6 +246,18 @@ const ALERT_TOOL_NAMES: ReadonlySet<string> = new Set<ChatAlertToolName>([
 
 export function isAlertTool(name: string): name is ChatAlertToolName {
   return ALERT_TOOL_NAMES.has(name)
+}
+
+const TAX_TOOL_NAMES: ReadonlySet<string> = new Set<ChatTaxToolName>([
+  'add_tax_entry',
+  'edit_tax_entry',
+  'remove_tax_entry',
+  'mark_tax_filed',
+  'unmark_tax_filed',
+])
+
+export function isTaxTool(name: string): name is ChatTaxToolName {
+  return TAX_TOOL_NAMES.has(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +311,62 @@ export async function executeAlertTool(name: ChatAlertToolName, input: unknown):
     }
   } catch (err) {
     if (err instanceof AlertRepoError) return { ok: false, error: `database error: ${err.message}` }
+    console.error(`[chat-tools] ${name} failed unexpectedly:`, err)
+    return { ok: false, error: 'unexpected server error' }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tax write tools: executed here, not by the browser. Same reasoning as
+// alert tools above — a real result instead of an unconditional "Applied".
+// ---------------------------------------------------------------------------
+
+function isValidTaxYearField(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 2000 && value <= 2100
+}
+
+function extractPeriod(input: unknown): string | undefined {
+  return isRecord(input) && typeof input['period'] === 'string' ? input['period'] : undefined
+}
+
+export async function executeTaxTool(name: ChatTaxToolName, input: unknown): Promise<TaxToolResult> {
+  try {
+    switch (name) {
+      case 'add_tax_entry': {
+        const parsed = parseEntryInput(input)
+        if (!parsed.ok) return { ok: false, error: parsed.error }
+        return { ok: true, entry: await insertEntry(parsed.value) }
+      }
+      case 'edit_tax_entry': {
+        const id = parseTaxUuidParam(extractId(input))
+        if (!id.ok) return { ok: false, error: id.error }
+        const parsed = parseEntryInput(input)
+        if (!parsed.ok) return { ok: false, error: parsed.error }
+        const entry = await updateEntry(id.value, parsed.value)
+        return entry === null ? { ok: false, error: 'entry not found — it may already have been deleted' } : { ok: true, entry }
+      }
+      case 'remove_tax_entry': {
+        const id = parseTaxUuidParam(extractId(input))
+        if (!id.ok) return { ok: false, error: id.error }
+        const removed = await deleteEntry(id.value)
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'entry not found — it may already have been deleted' }
+      }
+      case 'mark_tax_filed': {
+        const parsed = parseFilingInput(input)
+        if (!parsed.ok) return { ok: false, error: parsed.error }
+        return { ok: true, filing: await upsertFiling(parsed.value) }
+      }
+      case 'unmark_tax_filed': {
+        const taxYear = isRecord(input) ? input['taxYear'] : undefined
+        if (!isValidTaxYearField(taxYear)) return { ok: false, error: 'taxYear must be an integer between 2000 and 2100' }
+        const period = parsePeriodParam(extractPeriod(input))
+        if (!period.ok) return { ok: false, error: period.error }
+        const removed = await deleteFiling(taxYear, period.value)
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'filing not found — it may already be unmarked' }
+      }
+    }
+  } catch (err) {
+    if (err instanceof TaxRepoError) return { ok: false, error: `database error: ${err.message}` }
     console.error(`[chat-tools] ${name} failed unexpectedly:`, err)
     return { ok: false, error: 'unexpected server error' }
   }

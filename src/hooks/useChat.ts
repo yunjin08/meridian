@@ -8,13 +8,20 @@ import { usePortfolioStore } from '@/store/portfolioStore'
 import { useStockQuoteStore } from '@/store/stockQuoteStore'
 import { useStockPositionsStore } from '@/store/stockPositionsStore'
 import { useNavigationStore } from '@/store/navigationStore'
+import { useTaxStore } from '@/store/taxStore'
 import { lastValue } from '@/lib/formatters'
 import { summarisePortfolio } from '@/lib/portfolioSummary'
 import { summarisePnl } from '@/lib/pnlSummary'
+import { actionableDeadline, summarisePeriods, todayIso } from '@/lib/tax'
 import { loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
-import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatStreamEvent } from '@/types/chat'
+import type { TaxPeriod } from '@/types/tax'
+import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatTaxContext, ChatStreamEvent } from '@/types/chat'
+
+// Enough recent entries for the model to reference by id without dumping a
+// whole year of receipts into every turn; period summaries below are never capped.
+const TAX_ENTRY_ROW_LIMIT = 10
 
 // Enough rows for the model to name the biggest winners and losers without
 // pushing every dust holding into the prompt.
@@ -97,6 +104,35 @@ function formatCondition(condition: AlertCondition): string {
     case 'rsi_below':     return `RSI below ${condition.threshold}`
     case 'macd_crossover':  return 'MACD crossover (bullish)'
     case 'macd_crossunder': return 'MACD crossunder (bearish)'
+  }
+}
+
+function buildTaxContext(): ChatTaxContext | null {
+  const { selectedYear, entries, filings } = useTaxStore.getState()
+  if (entries.length === 0 && filings.length === 0) return null
+
+  const today = todayIso()
+  const periods = summarisePeriods(entries, filings, selectedYear, today).map((p) => ({
+    taxYear: p.taxYear,
+    period: p.period,
+    deadline: p.deadline,
+    status: p.status,
+    grossPhp: p.grossPhp,
+    taxDuePhp: p.taxDuePhp,
+    filing: p.filing,
+  }))
+
+  const actionable = actionableDeadline(entries, filings, today)
+
+  return {
+    selectedYear,
+    recentEntries: entries.slice(0, TAX_ENTRY_ROW_LIMIT).map((e) => ({
+      id: e.id, receivedOn: e.receivedOn, source: e.source, amountPhp: e.amountPhp, note: e.note,
+    })),
+    periods,
+    nextActionable: actionable
+      ? { taxYear: actionable.taxYear, period: actionable.period, deadline: actionable.deadline, taxDuePhp: actionable.taxDuePhp }
+      : null,
   }
 }
 
@@ -184,21 +220,23 @@ function buildContext(): DashboardContext {
     })),
     portfolio: buildPortfolioContext(),
     pnl: buildPnlContext(),
+    tax: buildTaxContext(),
   }
 }
 
 async function applyOneTool(
   tool: AppliedTool,
   alertStore: ReturnType<typeof useAlertStore.getState>,
+  taxStore: ReturnType<typeof useTaxStore.getState>,
   portfolioStore: ReturnType<typeof usePortfolioStore.getState>
 ): Promise<void> {
   switch (tool.name) {
-    // Alert tools now execute server-side (see chat.ts) — the mutation is
-    // already done by the time this runs. `result` is the real outcome; this
-    // just syncs the local store from it, no network call. A missing result
-    // means this tab predates that change (stale bundle); a present-but-failed
-    // result is already explained in the assistant's reply text, so there's
-    // nothing to surface again here.
+    // Alert and tax tools now execute server-side (see chat.ts) — the
+    // mutation is already done by the time this runs. `result` is the real
+    // outcome; this just syncs the local store from it, no network call. A
+    // missing result means this tab predates that change (stale bundle); a
+    // present-but-failed result is already explained in the assistant's
+    // reply text, so there's nothing to surface again here.
     case 'add_alert':
     case 'edit_alert':
     case 'toggle_alert': {
@@ -211,6 +249,34 @@ async function applyOneTool(
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
       if (result.ok) alertStore.applySyncedRemoval((tool.input as { id: string }).id)
+      break
+    }
+    case 'add_tax_entry':
+    case 'edit_tax_entry': {
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok && 'entry' in result) taxStore.applySyncedEntry(result.entry)
+      break
+    }
+    case 'remove_tax_entry': {
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok) taxStore.applySyncedEntryRemoval((tool.input as { id: string }).id)
+      break
+    }
+    case 'mark_tax_filed': {
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok && 'filing' in result) taxStore.applySyncedFiling(result.filing)
+      break
+    }
+    case 'unmark_tax_filed': {
+      const result = tool.result
+      if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
+      if (result.ok) {
+        const { taxYear, period } = tool.input as { taxYear: number; period: TaxPeriod }
+        taxStore.applySyncedFilingRemoval(taxYear, period)
+      }
       break
     }
     case 'add_symbol': {
@@ -237,12 +303,13 @@ async function applyOneTool(
 // already knows about, which a stale cached bundle can produce.
 async function applyToolResults(toolCalls: AppliedTool[]): Promise<string[]> {
   const alertStore = useAlertStore.getState()
+  const taxStore = useTaxStore.getState()
   const portfolioStore = usePortfolioStore.getState()
   const failures: string[] = []
 
   for (const tool of toolCalls) {
     try {
-      await applyOneTool(tool, alertStore, portfolioStore)
+      await applyOneTool(tool, alertStore, taxStore, portfolioStore)
     } catch (err) {
       console.error(`[useChat] failed to apply ${tool.name}:`, err)
       failures.push(tool.name)
