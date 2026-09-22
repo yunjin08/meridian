@@ -6,7 +6,7 @@
 
 Alerts are created, edited, and deleted through the chat assistant's write tools (`add_alert`,
 `edit_alert`, `remove_alert`, `toggle_alert` in `netlify/functions/utils/chat-tools.ts`), stored in
-Supabase (`alerts` table) — not localStorage.
+Netlify Database (`alerts` table, via Drizzle — `db/schema.ts`) — not localStorage.
 
 **These four tools execute server-side, not in the browser** (`executeAlertTool` in `chat-tools.ts`,
 called from `chat.ts`'s tool loop). This matters: an earlier design had the model call a tool and the
@@ -16,7 +16,7 @@ the client-side apply ever failed (stale cached JS not recognizing a newer tool,
 race), the model had already told the user it succeeded, with no way to retract that. It happened in
 practice: `remove_alert` fired for two alerts, the follow-up recreation never reached the database, and
 the chat confidently reported "both updated" anyway. Now the mutation happens directly against
-Supabase inside the tool call, using the same repo functions `alerts.ts` uses, and the model receives
+Netlify Database inside the tool call, using the same repo functions `alerts.ts` uses, and the model receives
 the *real* result — `Applied: x` only on an actual success, `Failed: x — <reason>` (as an `is_error`
 tool result) otherwise. The browser's `AppliedTool.result` then carries that same outcome for the UI to
 sync from (`alertStore.applySyncedAlert`/`applySyncedRemoval` — no second network round-trip, since the
@@ -43,7 +43,7 @@ failure mode, at the cost of resolution: a condition can only be detected once a
 sub-second.
 
 ```
-User asks the assistant → add_alert tool call → alertStore.addAlert() → POST /api/alerts → Supabase
+User asks the assistant → add_alert tool call → alertStore.addAlert() → POST /api/alerts → Netlify Database
 
                     ┌── Server (every minute, always) ─────────────────┐
                     │  alerts-cron.ts                                   │
@@ -52,7 +52,7 @@ User asks the assistant → add_alert tool call → alertStore.addAlert() → PO
                     │        │                                        │
                     │  alertEvaluation.ts → condition met?               │
                     │        │                                        │
-                    │  markTriggered() in Supabase  +  Resend email      │
+                    │  markTriggered() in Netlify DB  +  Resend email     │
                     └───────────────────────────────────────────────────┘
 
                     ┌── Browser (passive reflection, no evaluation) ────┐
@@ -88,7 +88,7 @@ assistant to say so rather than silently create one. See the limitation below.
 
 ---
 
-## Storage schema (Supabase table `alerts`, `supabase/migrations/0003_alerts.sql`)
+## Storage schema (Netlify Database table `alerts`, defined in `db/schema.ts`)
 
 ```typescript
 interface Alert {

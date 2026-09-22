@@ -64,7 +64,7 @@ When `connectionStatus === 'failed'` (after 5 WS reconnect attempts), the UI sho
 
 ## Feature additions (Phase 2)
 
-**Done: Overview tab and Tax module.** The Overview landing tab (portfolio hero, per-class cards, allocation bar, top holdings) and the Tax tab (PH 8% flat-rate income tax, period cards, entry form, BIR deadline banner and browser notifications) are built, backed by Supabase for tax records. See `CLAUDE.md` for the architecture.
+**Done: Overview tab and Tax module.** The Overview landing tab (portfolio hero, per-class cards, allocation bar, top holdings) and the Tax tab (PH 8% flat-rate income tax, period cards, entry form, BIR deadline banner and browser notifications) are built, backed by Netlify Database for tax records. See `CLAUDE.md` for the architecture.
 
 Explicitly out of scope for this module, left as follow-ups:
 - Taxation of trading gains (the current module only covers the 8% flat-rate income tax on gross receipts, not capital gains from crypto or stock trades).

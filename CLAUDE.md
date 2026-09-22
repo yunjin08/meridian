@@ -23,7 +23,7 @@ A real-time BTC/USDT trading dashboard connected to a personal Binance account. 
 | Hero load animation | Theatre.js (`@theatre/core`; `@theatre/studio` dev-only via `?studio`) | 0.7 |
 | Backend | Netlify Functions (serverless, esbuild) | — |
 | Indicators | technicalindicators (RSI, MACD, BB) | 3 |
-| Database | Supabase (Postgres, tax records only) | n/a |
+| Database | Netlify Database (Postgres, via Neon) + Drizzle ORM | — |
 | Tests | Vitest | n/a |
 | Deployment | Netlify | — |
 
@@ -76,17 +76,17 @@ All functions live in `netlify/functions/`. Shared modules live in `utils/`, not
 | `webauthn-login.ts` | `GET/POST /api/webauthn-login` | None | Passkey sign-in, mints the same session cookie as `login.ts` |
 | `webauthn-credentials.ts` | `GET/DELETE /api/webauthn-credentials` | Session | List and revoke registered devices |
 | `utils/webauthn-policy.ts` | — | — | RP config, device labels, signature counter rule |
-| `utils/webauthn-repo.ts` | — | — | Credential CRUD against Supabase |
-| `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Supabase |
+| `utils/webauthn-repo.ts` | — | — | Credential CRUD against Netlify Database (Drizzle) |
+| `tax-entries.ts` | `GET/POST/PUT/DELETE /api/tax-entries` | Session | Tax receipts in Netlify Database |
 | `tax-filings.ts` | `GET/PUT/DELETE /api/tax-filings` | Session | Filed periods |
 | `alerts.ts` | `GET/POST/PUT/DELETE /api/alerts` | Session | Alert CRUD, plus PUT patches for active/reset/trigger |
 | `alerts-cron.ts` | scheduled, every minute | none (Netlify-invoked) | Evaluates active alerts against fresh Binance data; emails on a fresh trigger |
-| `utils/alert-repo.ts` | — | — | Alert CRUD, plus cron-only reads/writes (`listActiveAlerts`, `updateLastPrice`) against Supabase |
+| `utils/alert-repo.ts` | — | — | Alert CRUD, plus cron-only reads/writes (`listActiveAlerts`, `updateLastPrice`) against Netlify Database (Drizzle) |
 | `utils/alert-validation.ts` | — | — | Request body/param validation for the alerts handler |
 | `utils/email.ts` | — | — | Resend REST wrapper; fixed sender/recipient, no-ops (logs) if RESEND_API_KEY is missing |
 | `utils/trading212-client.ts` | — | — | Basic-auth fetch wrapper + ticker mapping |
-| `utils/supabase-client.ts` | — | — | Supabase service-role client + row types |
-| `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Supabase |
+| `utils/db.ts` | — | — | Lazy Drizzle client via `@netlify/database`'s `getConnectionString()` — resolves the right branch automatically (prod/preview/local dev) |
+| `utils/tax-repo.ts` | — | — | Tax entry/filing CRUD against Netlify Database (Drizzle) |
 | `utils/tax-validation.ts` | — | — | Request body/param validation for tax handlers |
 | `utils/binance-client.ts` | — | — | Typed fetch wrapper + HMAC signer |
 | `utils/indicators.ts` | — | — | RSI/MACD/BB calculation |
@@ -111,7 +111,7 @@ src/
 │   ├── priceStore.ts        Live price, 24h stats, WS status, lastTickAt
 │   ├── chartStore.ts        Active timeframe, candles[], indicators, isLoading
 │   ├── balanceStore.ts      BTC/USDT balances, fetchedAt
-│   ├── alertStore.ts        Alerts[] — server-backed (Supabase via /api/alerts), plus a client-only cross-detection map
+│   ├── alertStore.ts        Alerts[] — server-backed (Netlify Database via /api/alerts), plus a client-only cross-detection map
 │   └── taxStore.ts          entries[], filings[], selectedYear, load/add/edit/remove/markFiled/unmarkFiled
 ├── hooks/                   Side-effect hooks (one concern each)
 │   ├── useBinanceWebSocket.ts  WS lifecycle, stream mgmt, exponential backoff reconnect
@@ -195,8 +195,6 @@ BINANCE_API_SECRET=...
 TRADING212_API_KEY=...
 TRADING212_API_SECRET=...
 TRADING212_ENV=live   # or demo
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...   # service role key, server-side only, never VITE_
 WEBAUTHN_RP_ID=...              # bare domain, e.g. meridian.netlify.app (localhost in dev)
 WEBAUTHN_ORIGIN=...             # full origin, e.g. https://meridian.netlify.app
 FRED_API_KEY=...                # free; without it the chat says macro data is not configured
@@ -205,7 +203,10 @@ RESEND_API_KEY=...              # sends alert-triggered emails; missing = alerts
 ```
 
 `ANTHROPIC_API_KEY` is not set by hand: Netlify's AI Gateway injects it (see
-`docs/ai-analysis.md`).
+`docs/ai-analysis.md`). `NETLIFY_DATABASE_URL` likewise is not set by hand — Netlify Database
+injects it per branch (production, deploy preview, or `netlify dev` locally), which
+`utils/db.ts`'s `getConnectionString()` resolves automatically. There is no manual database
+env var to configure.
 
 A passkey is bound to one origin, so `localhost` and production hold separate
 registrations. Registering on the dev server does not sign you in on production.
@@ -270,7 +271,7 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 3. **One combined candles endpoint.** Indicators are calculated server-side in the same `candles.ts` function call. There is no separate `/api/indicators` endpoint — that would require a second Binance kline fetch.
 
-4. **Tax records, passkey credentials, and alerts live in Supabase; everything else stays stateless.** Only `tax_income_entries`, `tax_filings`, `webauthn_credentials` and `alerts` are persisted server-side, and only through `netlify/functions/tax-*.ts`, `webauthn-*.ts` and `alerts.ts`/`alerts-cron.ts` using the service role key. Alerts moved off localStorage specifically so the `alerts-cron.ts` scheduled function can evaluate them and email the owner without a browser tab open — that is the one exception to "only tax and passkeys are stateful," made because a client-only store can't be read by a cron. The stock watchlist and the chat transcript remain in localStorage. Adding another table is an architecture decision, not a convenience.
+4. **Tax records, passkey credentials, and alerts live in Netlify Database; everything else stays stateless.** Only `tax_income_entries`, `tax_filings`, `webauthn_credentials` and `alerts` are persisted server-side (`db/schema.ts`), and only through `netlify/functions/tax-*.ts`, `webauthn-*.ts` and `alerts.ts`/`alerts-cron.ts` via `utils/db.ts`'s Drizzle client. Alerts moved off localStorage specifically so the `alerts-cron.ts` scheduled function can evaluate them and email the owner without a browser tab open — that is the one exception to "only tax and passkeys are stateful," made because a client-only store can't be read by a cron. The stock watchlist and the chat transcript remain in localStorage. Adding another table is an architecture decision, not a convenience.
 
 5. **Always run commands from the repository root.** The working directory is `/home/jed/jed/meridian`.
 
@@ -290,12 +291,14 @@ Create the Trading 212 API key with read scopes only (account, portfolio, histor
 
 13. **The WebAuthn challenge is a signed cookie, not a table.** `createChallengeCookie` / `readChallengeCookie` in `utils/auth.ts` carry it across the two-step ceremony with a 2 minute TTL. Do not add a challenges table.
 
+14. **Schema changes go through a migration, never a live edit.** `db/schema.ts` is the source of truth; `npx drizzle-kit generate --name <description>` diffs it against `netlify/database/migrations/` and writes a new migration folder. Netlify applies pending migrations automatically on every deploy (production and previews) — there is no manual `push` step in the build. Never hand-edit a migration file that has already been applied; write a new one instead, same as any other migration tool.
+
 ---
 
 ## Known Limitations (Phase 1)
 
 - Alert evaluation is server-only (`alerts-cron.ts`, once a minute) — crypto alerts email regardless of whether a tab is open, but detection resolution is bounded to one minute and stock/REIT alerts aren't evaluated at all. See `docs/alerts.md`.
-- Alerts are synced across devices via Supabase, but the chat transcript remains localStorage-only, not synced across devices or browsers.
+- Alerts are synced across devices via Netlify Database, but the chat transcript remains localStorage-only, not synced across devices or browsers.
 - No order placement, order history, or P&L tracking.
 - Symbol is hardcoded to `BTCUSDT` in `constants.ts`.
 - Deadline notifications fire only while the tab is open; the once-per-threshold markers are per browser.
