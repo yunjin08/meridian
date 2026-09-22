@@ -1,28 +1,38 @@
-import { getDatabase } from '@netlify/database'
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres'
 import { drizzle as drizzleNeon } from 'drizzle-orm/neon-serverless'
 import * as schema from '../../../db/schema.ts'
 
 export { schema }
 
-// getDatabase() picks the driver for the current context: a raw `pg.Pool`
-// locally (netlify dev's local proxy speaks plain Postgres wire protocol, not
-// Neon's HTTP protocol) and a Neon `Pool` in the deployed Lambda. Both extend
-// the same drizzle-orm PgDatabase base, so callers use one shared query API
-// regardless of which one is live.
+// Both extend the same drizzle-orm PgDatabase base, so callers use one
+// shared query API regardless of which one is live.
 type Db = ReturnType<typeof drizzlePg<typeof schema>> | ReturnType<typeof drizzleNeon<typeof schema>>
 
 let instance: Db | null = null
 
+// @netlify/database's own getDatabase()/getConnectionString() read through a
+// scoped `globalThis.Netlify.env` accessor that, in practice, didn't include
+// NETLIFY_DB_URL for a function added in a deploy after the database was
+// first connected — every existing function saw it, a brand-new one didn't.
+// Reading process.env directly is the same fix vitalwatch's Netlify Database
+// integration uses, and doesn't depend on that scoping working correctly.
+function getConnectionString(): string {
+  const url = process.env['NETLIFY_DB_URL'] ?? process.env['NETLIFY_DATABASE_URL']
+  if (!url) throw new Error('NETLIFY_DB_URL is not set')
+  return url
+}
+
 // Connect lazily on first query, not at module load — a cold Netlify Function
-// evaluates this module before any request arrives, and getDatabase() throws
-// if the database isn't reachable yet in that moment.
+// evaluates this module before any request arrives, and the env var isn't
+// guaranteed to be readable yet in that moment.
 export function getDb(): Db {
   if (instance) return instance
-  const connection = getDatabase()
+  const url = getConnectionString()
+  // NETLIFY_DEV is set by `netlify dev`, whose local proxy speaks plain
+  // Postgres wire protocol, not Neon's WebSocket protocol.
   instance =
-    connection.driver === 'server'
-      ? drizzlePg({ client: connection.pool, schema })
-      : drizzleNeon({ client: connection.pool, schema })
+    process.env['NETLIFY_DEV'] === 'true'
+      ? drizzlePg(url, { schema })
+      : drizzleNeon(url, { schema })
   return instance
 }
