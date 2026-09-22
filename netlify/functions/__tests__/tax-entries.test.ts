@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HandlerEvent } from '@netlify/functions'
 import type { TaxIncomeEntry } from '../../../src/types/tax.ts'
 
 vi.mock('../utils/auth.ts', () => ({
@@ -19,7 +18,7 @@ vi.mock('../utils/tax-repo.ts', () => {
 
 import { requireAuth } from '../utils/auth.ts'
 import * as repo from '../utils/tax-repo.ts'
-import { handler } from '../tax-entries.ts'
+import handler from '../tax-entries.ts'
 
 const entry: TaxIncomeEntry = {
   id: '6f1c2a3e-4b5d-4c6e-8f7a-9b0c1d2e3f4a',
@@ -31,20 +30,22 @@ const entry: TaxIncomeEntry = {
   updatedAt: '2026-03-05T00:00:00Z',
 }
 
-function makeEvent(overrides: Partial<HandlerEvent>): HandlerEvent {
-  return {
-    httpMethod: 'GET',
-    headers: {},
-    queryStringParameters: {},
-    body: null,
-    ...overrides,
-  } as unknown as HandlerEvent
+interface CallOptions {
+  method?: string
+  query?: Record<string, string>
+  body?: string
 }
 
-async function call(overrides: Partial<HandlerEvent>) {
-  const res = await handler(makeEvent(overrides), {} as never)
-  if (res === undefined) throw new Error('handler returned nothing')
-  return { status: res.statusCode, body: res.body ? (JSON.parse(res.body) as unknown) : null }
+function makeRequest({ method = 'GET', query = {}, body }: CallOptions): Request {
+  const url = new URL('http://localhost/api/tax-entries')
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
+  return new Request(url, { method, body: method === 'GET' || method === 'HEAD' || method === 'OPTIONS' ? undefined : body })
+}
+
+async function call(options: CallOptions) {
+  const res = await handler(makeRequest(options))
+  const text = await res.text()
+  return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null }
 }
 
 beforeEach(() => {
@@ -57,36 +58,36 @@ beforeEach(() => {
 
 describe('tax-entries handler', () => {
   it('answers preflight', async () => {
-    expect((await call({ httpMethod: 'OPTIONS' })).status).toBe(204)
+    expect((await call({ method: 'OPTIONS' })).status).toBe(204)
   })
 
   it('rejects unauthenticated requests', async () => {
     vi.mocked(requireAuth).mockReturnValue({ statusCode: 401, body: JSON.stringify({ error: 'unauthorized' }) })
-    expect((await call({ httpMethod: 'GET' })).status).toBe(401)
+    expect((await call({ method: 'GET' })).status).toBe(401)
   })
 
   it('rejects unsupported methods', async () => {
-    expect((await call({ httpMethod: 'PATCH' })).status).toBe(405)
+    expect((await call({ method: 'PATCH' })).status).toBe(405)
   })
 
   it('lists entries, optionally by year', async () => {
     vi.mocked(repo.listEntries).mockResolvedValue([entry])
-    const all = await call({ httpMethod: 'GET' })
+    const all = await call({ method: 'GET' })
     expect(all.status).toBe(200)
     expect(all.body).toEqual({ entries: [entry] })
     expect(repo.listEntries).toHaveBeenLastCalledWith(null)
 
-    await call({ httpMethod: 'GET', queryStringParameters: { year: '2026' } })
+    await call({ method: 'GET', query: { year: '2026' } })
     expect(repo.listEntries).toHaveBeenLastCalledWith(2026)
 
-    const bad = await call({ httpMethod: 'GET', queryStringParameters: { year: 'abc' } })
+    const bad = await call({ method: 'GET', query: { year: 'abc' } })
     expect(bad.status).toBe(400)
   })
 
   it('creates an entry', async () => {
     vi.mocked(repo.insertEntry).mockResolvedValue(entry)
     const res = await call({
-      httpMethod: 'POST',
+      method: 'POST',
       body: JSON.stringify({ receivedOn: '2026-03-05', source: 'Acme', amountPhp: 1500.5 }),
     })
     expect(res.status).toBe(201)
@@ -95,7 +96,7 @@ describe('tax-entries handler', () => {
   })
 
   it('rejects an invalid create body with the validation message', async () => {
-    const res = await call({ httpMethod: 'POST', body: JSON.stringify({ receivedOn: 'nope', source: 'Acme', amountPhp: 1 }) })
+    const res = await call({ method: 'POST', body: JSON.stringify({ receivedOn: 'nope', source: 'Acme', amountPhp: 1 }) })
     expect(res.status).toBe(400)
     expect(res.body).toEqual({ error: 'receivedOn must be a valid YYYY-MM-DD date' })
     expect(repo.insertEntry).not.toHaveBeenCalled()
@@ -104,8 +105,8 @@ describe('tax-entries handler', () => {
   it('updates an entry and reports missing ids', async () => {
     vi.mocked(repo.updateEntry).mockResolvedValue(entry)
     const ok = await call({
-      httpMethod: 'PUT',
-      queryStringParameters: { id: entry.id },
+      method: 'PUT',
+      query: { id: entry.id },
       body: JSON.stringify({ receivedOn: '2026-03-05', source: 'Acme', amountPhp: 1500.5 }),
     })
     expect(ok.status).toBe(200)
@@ -113,27 +114,27 @@ describe('tax-entries handler', () => {
 
     vi.mocked(repo.updateEntry).mockResolvedValue(null)
     const missing = await call({
-      httpMethod: 'PUT',
-      queryStringParameters: { id: entry.id },
+      method: 'PUT',
+      query: { id: entry.id },
       body: JSON.stringify({ receivedOn: '2026-03-05', source: 'Acme', amountPhp: 1 }),
     })
     expect(missing.status).toBe(404)
 
-    const badId = await call({ httpMethod: 'PUT', queryStringParameters: { id: '1' }, body: '{}' })
+    const badId = await call({ method: 'PUT', query: { id: '1' }, body: '{}' })
     expect(badId.status).toBe(400)
   })
 
   it('deletes an entry', async () => {
     vi.mocked(repo.deleteEntry).mockResolvedValue(true)
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { id: entry.id } })).status).toBe(204)
+    expect((await call({ method: 'DELETE', query: { id: entry.id } })).status).toBe(204)
 
     vi.mocked(repo.deleteEntry).mockResolvedValue(false)
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { id: entry.id } })).status).toBe(404)
+    expect((await call({ method: 'DELETE', query: { id: entry.id } })).status).toBe(404)
   })
 
   it('maps repository failures to 502', async () => {
     vi.mocked(repo.listEntries).mockRejectedValue(new repo.TaxRepoError('connection refused'))
-    const res = await call({ httpMethod: 'GET' })
+    const res = await call({ method: 'GET' })
     expect(res.status).toBe(502)
     expect(res.body).toEqual({ error: 'database_error', msg: 'connection refused' })
   })

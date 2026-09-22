@@ -1,5 +1,6 @@
-import type { Handler, HandlerEvent, HandlerResponse } from '@netlify/functions'
+import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import { requireAuth } from './utils/auth.ts'
+import { asV2 } from './utils/v2.ts'
 import {
   badGateway,
   badRequest,
@@ -39,7 +40,7 @@ async function handleDelete(event: HandlerEvent): Promise<HandlerResponse> {
   return removed ? noContent() : notFound()
 }
 
-export const handler: Handler = async (event) => {
+async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
   if (event.httpMethod === 'OPTIONS') return preflight()
   const unauthorizedResponse = requireAuth(event)
   if (unauthorizedResponse) return unauthorizedResponse
@@ -59,3 +60,10 @@ export const handler: Handler = async (event) => {
     return internalError('internal_error')
   }
 }
+
+// Functions 2.0 entry point: Netlify Database only injects NETLIFY_DB_URL
+// into this runtime, never into a classic handler export — same platform
+// limitation as the AI Gateway credentials (see CLAUDE.md rule 12).
+export default asV2(handleEvent)
+
+export const config: Config = { path: '/api/tax-filings' }

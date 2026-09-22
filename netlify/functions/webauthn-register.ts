@@ -1,4 +1,4 @@
-import type { Handler, HandlerEvent, HandlerResponse } from '@netlify/functions'
+import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server'
 import type { RegistrationResponseJSON, AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import { clearChallengeCookie, createChallengeCookie, readChallengeCookie, requireAuth } from './utils/auth.ts'
@@ -13,6 +13,7 @@ import {
 } from './utils/http.ts'
 import { deviceLabelFromUserAgent, getWebAuthnConfig, RP_NAME, WebAuthnConfigError } from './utils/webauthn-policy.ts'
 import { insertCredential, listCredentialDescriptors, WebAuthnRepoError } from './utils/webauthn-repo.ts'
+import { asV2 } from './utils/v2.ts'
 
 // Registering is a re-enrolment of the one owner, not the creation of a user,
 // so the WebAuthn user handle is a fixed identity rather than a per-row id.
@@ -91,7 +92,7 @@ async function handlePost(event: HandlerEvent): Promise<HandlerResponse> {
   return created({ credential: passkey }, { 'Set-Cookie': clearChallengeCookie() })
 }
 
-export const handler: Handler = async (event) => {
+async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
   if (event.httpMethod === 'OPTIONS') return preflight()
 
   // Enrolling a device is an owner action: you prove who you are with the
@@ -117,3 +118,10 @@ export const handler: Handler = async (event) => {
     return internalError('internal_error')
   }
 }
+
+// Functions 2.0 entry point: Netlify Database only injects NETLIFY_DB_URL
+// into this runtime, never into a classic handler export — same platform
+// limitation as the AI Gateway credentials (see CLAUDE.md rule 12).
+export default asV2(handleEvent)
+
+export const config: Config = { path: '/api/webauthn-register' }

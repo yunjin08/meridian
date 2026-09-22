@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HandlerEvent } from '@netlify/functions'
 import type { TaxFiling } from '../../../src/types/tax.ts'
 
 vi.mock('../utils/auth.ts', () => ({
@@ -18,24 +17,26 @@ vi.mock('../utils/tax-repo.ts', () => {
 
 import { requireAuth } from '../utils/auth.ts'
 import * as repo from '../utils/tax-repo.ts'
-import { handler } from '../tax-filings.ts'
+import handler from '../tax-filings.ts'
 
 const filing: TaxFiling = { taxYear: 2026, period: 'Q1', filedOn: '2026-05-10', amountPaidPhp: 4000 }
 
-function makeEvent(overrides: Partial<HandlerEvent>): HandlerEvent {
-  return {
-    httpMethod: 'GET',
-    headers: {},
-    queryStringParameters: {},
-    body: null,
-    ...overrides,
-  } as unknown as HandlerEvent
+interface CallOptions {
+  method?: string
+  query?: Record<string, string>
+  body?: string
 }
 
-async function call(overrides: Partial<HandlerEvent>) {
-  const res = await handler(makeEvent(overrides), {} as never)
-  if (res === undefined) throw new Error('handler returned nothing')
-  return { status: res.statusCode, body: res.body ? (JSON.parse(res.body) as unknown) : null }
+function makeRequest({ method = 'GET', query = {}, body }: CallOptions): Request {
+  const url = new URL('http://localhost/api/tax-filings')
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
+  return new Request(url, { method, body: method === 'GET' || method === 'HEAD' || method === 'OPTIONS' ? undefined : body })
+}
+
+async function call(options: CallOptions) {
+  const res = await handler(makeRequest(options))
+  const text = await res.text()
+  return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null }
 }
 
 beforeEach(() => {
@@ -47,15 +48,15 @@ beforeEach(() => {
 
 describe('tax-filings handler', () => {
   it('answers preflight and guards auth and methods', async () => {
-    expect((await call({ httpMethod: 'OPTIONS' })).status).toBe(204)
-    expect((await call({ httpMethod: 'POST' })).status).toBe(405)
+    expect((await call({ method: 'OPTIONS' })).status).toBe(204)
+    expect((await call({ method: 'POST' })).status).toBe(405)
     vi.mocked(requireAuth).mockReturnValue({ statusCode: 401, body: JSON.stringify({ error: 'unauthorized' }) })
-    expect((await call({ httpMethod: 'GET' })).status).toBe(401)
+    expect((await call({ method: 'GET' })).status).toBe(401)
   })
 
   it('lists filings, optionally by year', async () => {
     vi.mocked(repo.listFilings).mockResolvedValue([filing])
-    const res = await call({ httpMethod: 'GET', queryStringParameters: { year: '2026' } })
+    const res = await call({ method: 'GET', query: { year: '2026' } })
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ filings: [filing] })
     expect(repo.listFilings).toHaveBeenLastCalledWith(2026)
@@ -63,33 +64,33 @@ describe('tax-filings handler', () => {
 
   it('upserts a filing', async () => {
     vi.mocked(repo.upsertFiling).mockResolvedValue(filing)
-    const res = await call({ httpMethod: 'PUT', body: JSON.stringify(filing) })
+    const res = await call({ method: 'PUT', body: JSON.stringify(filing) })
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ filing })
     expect(repo.upsertFiling).toHaveBeenCalledWith(filing)
   })
 
   it('rejects an invalid filing body', async () => {
-    const res = await call({ httpMethod: 'PUT', body: JSON.stringify({ ...filing, period: 'Q4' }) })
+    const res = await call({ method: 'PUT', body: JSON.stringify({ ...filing, period: 'Q4' }) })
     expect(res.status).toBe(400)
     expect(res.body).toEqual({ error: 'period must be one of Q1, Q2, Q3, ANNUAL' })
   })
 
   it('deletes a filing by year and period', async () => {
     vi.mocked(repo.deleteFiling).mockResolvedValue(true)
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { year: '2026', period: 'Q1' } })).status).toBe(204)
+    expect((await call({ method: 'DELETE', query: { year: '2026', period: 'Q1' } })).status).toBe(204)
     expect(repo.deleteFiling).toHaveBeenCalledWith(2026, 'Q1')
 
     vi.mocked(repo.deleteFiling).mockResolvedValue(false)
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { year: '2026', period: 'Q1' } })).status).toBe(404)
+    expect((await call({ method: 'DELETE', query: { year: '2026', period: 'Q1' } })).status).toBe(404)
 
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { period: 'Q1' } })).status).toBe(400)
-    expect((await call({ httpMethod: 'DELETE', queryStringParameters: { year: '2026' } })).status).toBe(400)
+    expect((await call({ method: 'DELETE', query: { period: 'Q1' } })).status).toBe(400)
+    expect((await call({ method: 'DELETE', query: { year: '2026' } })).status).toBe(400)
   })
 
   it('maps repository failures to 502', async () => {
     vi.mocked(repo.listFilings).mockRejectedValue(new repo.TaxRepoError('timeout'))
-    const res = await call({ httpMethod: 'GET' })
+    const res = await call({ method: 'GET' })
     expect(res.status).toBe(502)
     expect(res.body).toEqual({ error: 'database_error', msg: 'timeout' })
   })

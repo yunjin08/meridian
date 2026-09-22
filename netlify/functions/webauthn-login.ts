@@ -1,4 +1,4 @@
-import type { Handler, HandlerEvent, HandlerResponse } from '@netlify/functions'
+import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import { generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server'
 import type { AuthenticationResponseJSON, AuthenticatorTransportFuture } from '@simplewebauthn/server'
 import {
@@ -19,6 +19,7 @@ import {
 } from './utils/http.ts'
 import { getWebAuthnConfig, isCounterAcceptable, WebAuthnConfigError } from './utils/webauthn-policy.ts'
 import { findCredential, recordUse, WebAuthnRepoError } from './utils/webauthn-repo.ts'
+import { asV2 } from './utils/v2.ts'
 
 async function handleGet(): Promise<HandlerResponse> {
   const { rpID } = getWebAuthnConfig()
@@ -97,7 +98,7 @@ async function handlePost(event: HandlerEvent): Promise<HandlerResponse> {
   return okWithCookies({ authenticated: true }, [sessionCookie, clearChallengeCookie()])
 }
 
-export const handler: Handler = async (event) => {
+async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
   if (event.httpMethod === 'OPTIONS') return preflight()
 
   try {
@@ -118,3 +119,10 @@ export const handler: Handler = async (event) => {
     return internalError('internal_error')
   }
 }
+
+// Functions 2.0 entry point: Netlify Database only injects NETLIFY_DB_URL
+// into this runtime, never into a classic handler export — same platform
+// limitation as the AI Gateway credentials (see CLAUDE.md rule 12).
+export default asV2(handleEvent)
+
+export const config: Config = { path: '/api/webauthn-login' }
