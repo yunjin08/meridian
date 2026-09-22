@@ -1,7 +1,8 @@
-import type { Handler, HandlerEvent, HandlerResponse } from '@netlify/functions'
+import type { Config, HandlerEvent, HandlerResponse } from '@netlify/functions'
 import { requireAuth } from './utils/auth.ts'
 import { ok, preflight, internalError } from './utils/http.ts'
 import { getDb, schema } from './utils/db.ts'
+import { asV2 } from './utils/v2.ts'
 
 // One-off: copies the handful of rows that lived in Supabase before the
 // Netlify Database migration. Safe to call more than once (onConflictDoNothing).
@@ -75,7 +76,7 @@ const WEBAUTHN_CREDENTIALS = [
   }
 ]
 
-export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResponse> => {
+async function handleEvent(event: HandlerEvent): Promise<HandlerResponse> {
   if (event.httpMethod === 'OPTIONS') return preflight()
   const unauthorizedResponse = requireAuth(event)
   if (unauthorizedResponse) return unauthorizedResponse
@@ -112,3 +113,10 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
     )
   }
 }
+
+// Testing whether NETLIFY_DB_URL, like ANTHROPIC_API_KEY (rule 12 in
+// CLAUDE.md), is only injected into the Functions 2.0 runtime and never into
+// a classic handler export.
+export default asV2(handleEvent)
+
+export const config: Config = { path: '/api/migrate-legacy-data' }
