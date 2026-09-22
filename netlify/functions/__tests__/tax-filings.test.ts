@@ -7,9 +7,9 @@ vi.mock('../utils/auth.ts', () => ({
 }))
 
 vi.mock('../utils/tax-repo.ts', () => {
-  class SupabaseRepoError extends Error {}
+  class TaxRepoError extends Error {}
   return {
-    SupabaseRepoError,
+    TaxRepoError,
     listFilings: vi.fn(),
     upsertFiling: vi.fn(),
     deleteFiling: vi.fn(),
@@ -88,9 +88,9 @@ describe('tax-filings handler', () => {
   })
 
   it('maps repository failures to 502', async () => {
-    vi.mocked(repo.listFilings).mockRejectedValue(new repo.SupabaseRepoError('timeout'))
+    vi.mocked(repo.listFilings).mockRejectedValue(new repo.TaxRepoError('timeout'))
     const res = await call({ httpMethod: 'GET' })
     expect(res.status).toBe(502)
-    expect(res.body).toEqual({ error: 'supabase_error', msg: 'timeout' })
+    expect(res.body).toEqual({ error: 'database_error', msg: 'timeout' })
   })
 })

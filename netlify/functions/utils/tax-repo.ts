@@ -1,131 +1,141 @@
-import { getSupabase, type TaxEntryRow, type TaxFilingRow } from './supabase-client.ts'
+import { and, desc, eq, gte, lte } from 'drizzle-orm'
+import { getDb, schema } from './db.ts'
 import type { TaxFiling, TaxIncomeEntry, TaxIncomeEntryInput, TaxPeriod } from '../../../src/types/tax.ts'
 
-export class SupabaseRepoError extends Error {
+export class TaxRepoError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'SupabaseRepoError'
+    this.name = 'TaxRepoError'
   }
 }
 
-function toEntry(row: TaxEntryRow): TaxIncomeEntry {
+type EntryRow = typeof schema.taxIncomeEntries.$inferSelect
+type FilingRow = typeof schema.taxFilings.$inferSelect
+
+async function run<T>(context: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[tax-repo] ${context}:`, message)
+    throw new TaxRepoError(message)
+  }
+}
+
+function toEntry(row: EntryRow): TaxIncomeEntry {
   return {
     id: row.id,
-    receivedOn: row.received_on,
+    receivedOn: row.receivedOn,
     source: row.source,
-    amountPhp: Number(row.amount_php),
+    amountPhp: Number(row.amountPhp),
     note: row.note,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   }
 }
 
-function toFiling(row: TaxFilingRow): TaxFiling {
+function toFiling(row: FilingRow): TaxFiling {
   return {
-    taxYear: row.tax_year,
-    period: row.period as TaxPeriod,   // constrained by the DB check
-    filedOn: row.filed_on,
-    amountPaidPhp: Number(row.amount_paid_php),
+    taxYear: row.taxYear,
+    period: row.period as TaxPeriod,   // constrained by tax-validation.ts on write
+    filedOn: row.filedOn,
+    amountPaidPhp: Number(row.amountPaidPhp),
   }
-}
-
-function fail(context: string, error: { message: string }): never {
-  console.error(`[tax-repo] ${context}:`, error.message)
-  throw new SupabaseRepoError(error.message)
 }
 
 export async function listEntries(year: number | null): Promise<TaxIncomeEntry[]> {
-  let query = getSupabase()
-    .from('tax_income_entries')
-    .select('*')
-    .order('received_on', { ascending: false })
-    .order('created_at', { ascending: false })
-  if (year !== null) {
-    query = query.gte('received_on', `${year}-01-01`).lte('received_on', `${year}-12-31`)
-  }
-  const { data, error } = await query
-  if (error) fail('listEntries', error)
-  return (data ?? []).map(toEntry)
+  return run('listEntries', async () => {
+    const { taxIncomeEntries: t } = schema
+    const where = year === null ? undefined : and(gte(t.receivedOn, `${year}-01-01`), lte(t.receivedOn, `${year}-12-31`))
+    const rows = await getDb()
+      .select()
+      .from(t)
+      .where(where)
+      .orderBy(desc(t.receivedOn), desc(t.createdAt))
+    return rows.map(toEntry)
+  })
 }
 
 export async function insertEntry(input: TaxIncomeEntryInput): Promise<TaxIncomeEntry> {
-  const { data, error } = await getSupabase()
-    .from('tax_income_entries')
-    .insert({
-      received_on: input.receivedOn,
-      source: input.source,
-      amount_php: input.amountPhp,
-      note: input.note,
-    })
-    .select('*')
-    .single()
-  if (error) fail('insertEntry', error)
-  return toEntry(data)
+  return run('insertEntry', async () => {
+    const [row] = await getDb()
+      .insert(schema.taxIncomeEntries)
+      .values({
+        receivedOn: input.receivedOn,
+        source: input.source,
+        amountPhp: String(input.amountPhp),
+        note: input.note,
+      })
+      .returning()
+    if (!row) throw new Error('insert returned no row')
+    return toEntry(row)
+  })
 }
 
 export async function updateEntry(id: string, input: TaxIncomeEntryInput): Promise<TaxIncomeEntry | null> {
-  const { data, error } = await getSupabase()
-    .from('tax_income_entries')
-    .update({
-      received_on: input.receivedOn,
-      source: input.source,
-      amount_php: input.amountPhp,
-      note: input.note,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select('*')
-    .maybeSingle()
-  if (error) fail('updateEntry', error)
-  return data === null ? null : toEntry(data)
+  return run('updateEntry', async () => {
+    const [row] = await getDb()
+      .update(schema.taxIncomeEntries)
+      .set({
+        receivedOn: input.receivedOn,
+        source: input.source,
+        amountPhp: String(input.amountPhp),
+        note: input.note,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.taxIncomeEntries.id, id))
+      .returning()
+    return row === undefined ? null : toEntry(row)
+  })
 }
 
 export async function deleteEntry(id: string): Promise<boolean> {
-  const { data, error } = await getSupabase()
-    .from('tax_income_entries')
-    .delete()
-    .eq('id', id)
-    .select('id')
-  if (error) fail('deleteEntry', error)
-  return (data ?? []).length > 0
+  return run('deleteEntry', async () => {
+    const rows = await getDb()
+      .delete(schema.taxIncomeEntries)
+      .where(eq(schema.taxIncomeEntries.id, id))
+      .returning({ id: schema.taxIncomeEntries.id })
+    return rows.length > 0
+  })
 }
 
 export async function listFilings(year: number | null): Promise<TaxFiling[]> {
-  let query = getSupabase()
-    .from('tax_filings')
-    .select('*')
-    .order('tax_year', { ascending: false })
-  if (year !== null) query = query.eq('tax_year', year)
-  const { data, error } = await query
-  if (error) fail('listFilings', error)
-  return (data ?? []).map(toFiling)
+  return run('listFilings', async () => {
+    const { taxFilings: t } = schema
+    const where = year === null ? undefined : eq(t.taxYear, year)
+    const rows = await getDb().select().from(t).where(where).orderBy(desc(t.taxYear))
+    return rows.map(toFiling)
+  })
 }
 
 export async function upsertFiling(input: TaxFiling): Promise<TaxFiling> {
-  const { data, error } = await getSupabase()
-    .from('tax_filings')
-    .upsert(
-      {
-        tax_year: input.taxYear,
+  return run('upsertFiling', async () => {
+    const { taxFilings: t } = schema
+    const [row] = await getDb()
+      .insert(t)
+      .values({
+        taxYear: input.taxYear,
         period: input.period,
-        filed_on: input.filedOn,
-        amount_paid_php: input.amountPaidPhp,
-      },
-      { onConflict: 'tax_year,period' },
-    )
-    .select('*')
-    .single()
-  if (error) fail('upsertFiling', error)
-  return toFiling(data)
+        filedOn: input.filedOn,
+        amountPaidPhp: String(input.amountPaidPhp),
+      })
+      .onConflictDoUpdate({
+        target: [t.taxYear, t.period],
+        set: { filedOn: input.filedOn, amountPaidPhp: String(input.amountPaidPhp) },
+      })
+      .returning()
+    if (!row) throw new Error('upsert returned no row')
+    return toFiling(row)
+  })
 }
 
 export async function deleteFiling(taxYear: number, period: TaxPeriod): Promise<boolean> {
-  const { data, error } = await getSupabase()
-    .from('tax_filings')
-    .delete()
-    .eq('tax_year', taxYear)
-    .eq('period', period)
-    .select('tax_year')
-  if (error) fail('deleteFiling', error)
-  return (data ?? []).length > 0
+  return run('deleteFiling', async () => {
+    const { taxFilings: t } = schema
+    const rows = await getDb()
+      .delete(t)
+      .where(and(eq(t.taxYear, taxYear), eq(t.period, period)))
+      .returning({ taxYear: t.taxYear })
+    return rows.length > 0
+  })
 }

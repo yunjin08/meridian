@@ -7,9 +7,9 @@ vi.mock('../utils/auth.ts', () => ({
 }))
 
 vi.mock('../utils/tax-repo.ts', () => {
-  class SupabaseRepoError extends Error {}
+  class TaxRepoError extends Error {}
   return {
-    SupabaseRepoError,
+    TaxRepoError,
     listEntries: vi.fn(),
     insertEntry: vi.fn(),
     updateEntry: vi.fn(),
@@ -132,9 +132,9 @@ describe('tax-entries handler', () => {
   })
 
   it('maps repository failures to 502', async () => {
-    vi.mocked(repo.listEntries).mockRejectedValue(new repo.SupabaseRepoError('connection refused'))
+    vi.mocked(repo.listEntries).mockRejectedValue(new repo.TaxRepoError('connection refused'))
     const res = await call({ httpMethod: 'GET' })
     expect(res.status).toBe(502)
-    expect(res.body).toEqual({ error: 'supabase_error', msg: 'connection refused' })
+    expect(res.body).toEqual({ error: 'database_error', msg: 'connection refused' })
   })
 })

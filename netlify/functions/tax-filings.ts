@@ -10,7 +10,7 @@ import {
   ok,
   preflight,
 } from './utils/http.ts'
-import { deleteFiling, listFilings, SupabaseRepoError, upsertFiling } from './utils/tax-repo.ts'
+import { deleteFiling, listFilings, TaxRepoError, upsertFiling } from './utils/tax-repo.ts'
 import { parseFilingInput, parseJsonBody, parsePeriodParam, parseYearParam } from './utils/tax-validation.ts'
 
 async function handleGet(event: HandlerEvent): Promise<HandlerResponse> {
@@ -52,8 +52,8 @@ export const handler: Handler = async (event) => {
       default:       return methodNotAllowed()
     }
   } catch (err) {
-    if (err instanceof SupabaseRepoError) {
-      return badGateway('supabase_error', { msg: err.message })
+    if (err instanceof TaxRepoError) {
+      return badGateway('database_error', { msg: err.message })
     }
     console.error('[tax-filings] unexpected error:', err)
     return internalError('internal_error')
