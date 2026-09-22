@@ -101,6 +101,14 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
     return ok({ alertsInserted, credentialsInserted, alertsAttempted: ALERTS.length, credentialsAttempted: WEBAUTHN_CREDENTIALS.length })
   } catch (err) {
     console.error('[migrate-legacy-data] failed:', err)
-    return internalError(err instanceof Error ? err.message : 'unknown error')
+    // Names only, never values — narrows down what this function's runtime
+    // environment actually has, since two different resolution paths have
+    // both failed to find a database connection string here.
+    const relevantEnvKeys = Object.keys(process.env)
+      .filter((k) => /DATABASE|NETLIFY_DB|NEON/i.test(k))
+      .sort()
+    return internalError(
+      `${err instanceof Error ? err.message : 'unknown error'} | relevant env keys present: [${relevantEnvKeys.join(', ')}] | NETLIFY_DEV=${process.env['NETLIFY_DEV'] ?? 'unset'} | CONTEXT=${process.env['CONTEXT'] ?? 'unset'}`
+    )
   }
 }
