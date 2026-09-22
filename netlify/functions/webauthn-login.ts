@@ -112,7 +112,7 @@ export const handler: Handler = async (event) => {
       return internalError('webauthn_not_configured')
     }
     if (err instanceof WebAuthnRepoError) {
-      return badGateway('supabase_error', { msg: err.message })
+      return badGateway('database_error', { msg: err.message })
     }
     console.error('[webauthn-login] unexpected error:', err)
     return internalError('internal_error')

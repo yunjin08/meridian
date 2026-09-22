@@ -36,7 +36,7 @@ export const handler: Handler = async (event) => {
     }
   } catch (err) {
     if (err instanceof WebAuthnRepoError) {
-      return badGateway('supabase_error', { msg: err.message })
+      return badGateway('database_error', { msg: err.message })
     }
     console.error('[webauthn-credentials] unexpected error:', err)
     return internalError('internal_error')
