@@ -22,12 +22,6 @@ vi.mock('../utils/binance-holdings.ts', () => ({
   getAssetUsdtPrice: vi.fn((asset: string, priceMap: Map<string, number>) => priceMap.get(`${asset}USDT`) ?? null),
 }))
 
-// Stock history has its own unit tests; here it contributes nothing so these
-// tests stay about crypto.
-vi.mock('../utils/stock-history.ts', () => ({
-  buildStockHistory: vi.fn(async () => ({ events: [], closes: new Map(), offset: new Map(), warnings: [] })),
-}))
-
 import { requireAuth } from '../utils/auth.ts'
 import { binanceFetch, binancePublicFetch, BinanceError } from '../utils/binance-client.ts'
 import { fetchAssetTotals, fetchPriceMap } from '../utils/binance-holdings.ts'
