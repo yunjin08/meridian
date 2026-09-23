@@ -1,5 +1,3 @@
-import type { Trading212HistoricalOrder, Trading212OrderHistoryPage } from '../../../src/types/trading212.ts'
-
 const BASE_URLS = {
   live: 'https://live.trading212.com/api/v0',
   demo: 'https://demo.trading212.com/api/v0',
@@ -59,37 +57,6 @@ export async function t212Fetch<T>(path: string): Promise<T> {
   }
 
   return res.json() as Promise<T>
-}
-
-// Order history is rate limited to 6 req/min, so a single load must finish
-// inside one window. 6 pages x 50 = 300 fills covers a personal account; if
-// more remain, the caller flags the curve as partial rather than risking a 429.
-const ORDER_HISTORY_PAGE_SIZE = 50
-const ORDER_HISTORY_MAX_PAGES = 6
-
-export interface OrderHistoryResult {
-  orders: Trading212HistoricalOrder[]
-  /** True when the account has more history than one rate-limit window could fetch. */
-  truncated: boolean
-}
-
-/**
- * Page through the full order history via the API's own `nextPagePath` cursor.
- * `nextPagePath` includes the `/api/v0` prefix that `t212Fetch` also adds, so it
- * is stripped before reuse.
- */
-export async function fetchOrderHistory(): Promise<OrderHistoryResult> {
-  const orders: Trading212HistoricalOrder[] = []
-  let path = `/equity/history/orders?limit=${ORDER_HISTORY_PAGE_SIZE}`
-
-  for (let page = 0; page < ORDER_HISTORY_MAX_PAGES; page += 1) {
-    const res = await t212Fetch<Trading212OrderHistoryPage>(path)
-    orders.push(...res.items)
-    if (res.nextPagePath === null) return { orders, truncated: false }
-    path = res.nextPagePath.replace(/^\/api\/v0/, '')
-  }
-
-  return { orders, truncated: true }
 }
 
 /**
