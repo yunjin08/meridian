@@ -294,19 +294,19 @@ export async function executeAlertTool(name: ChatAlertToolName, input: unknown):
         if (!patch.ok) return { ok: false, error: patch.error }
         if (!('edit' in patch.value)) return { ok: false, error: 'edit_alert needs at least one of label, condition, or autoReset' }
         const alert = await updateAlert(id.value, patch.value.edit)
-        return alert === null ? { ok: false, error: 'alert not found — it may already have been deleted' } : { ok: true, alert }
+        return alert === null ? { ok: false, error: 'no alert matched that id; nothing was changed' } : { ok: true, alert }
       }
       case 'remove_alert': {
         const id = parseUuidParam(extractId(input))
         if (!id.ok) return { ok: false, error: id.error }
         const removed = await deleteAlert(id.value)
-        return removed ? { ok: true, removed: true } : { ok: false, error: 'alert not found — it may already have been deleted' }
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'no alert matched that id; nothing was deleted' }
       }
       case 'toggle_alert': {
         const id = parseUuidParam(extractId(input))
         if (!id.ok) return { ok: false, error: id.error }
         const alert = await toggleActive(id.value)
-        return alert === null ? { ok: false, error: 'alert not found — it may already have been deleted' } : { ok: true, alert }
+        return alert === null ? { ok: false, error: 'no alert matched that id; nothing was changed' } : { ok: true, alert }
       }
     }
   } catch (err) {
@@ -343,13 +343,13 @@ export async function executeTaxTool(name: ChatTaxToolName, input: unknown): Pro
         const parsed = parseEntryInput(input)
         if (!parsed.ok) return { ok: false, error: parsed.error }
         const entry = await updateEntry(id.value, parsed.value)
-        return entry === null ? { ok: false, error: 'entry not found — it may already have been deleted' } : { ok: true, entry }
+        return entry === null ? { ok: false, error: 'no entry matched that id; nothing was changed' } : { ok: true, entry }
       }
       case 'remove_tax_entry': {
         const id = parseTaxUuidParam(extractId(input))
         if (!id.ok) return { ok: false, error: id.error }
         const removed = await deleteEntry(id.value)
-        return removed ? { ok: true, removed: true } : { ok: false, error: 'entry not found — it may already have been deleted' }
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'no entry matched that id; nothing was deleted' }
       }
       case 'mark_tax_filed': {
         const parsed = parseFilingInput(input)
@@ -362,7 +362,7 @@ export async function executeTaxTool(name: ChatTaxToolName, input: unknown): Pro
         const period = parsePeriodParam(extractPeriod(input))
         if (!period.ok) return { ok: false, error: period.error }
         const removed = await deleteFiling(taxYear, period.value)
-        return removed ? { ok: true, removed: true } : { ok: false, error: 'filing not found — it may already be unmarked' }
+        return removed ? { ok: true, removed: true } : { ok: false, error: 'no filing matched that period; nothing was changed' }
       }
     }
   } catch (err) {
