@@ -56,14 +56,14 @@ const contextWithPnl = {
   pnl: {
     total: -575.69, totalCurrency: 'USD',
     crypto: {
-      net: -572.87, netSpent: 2159.85, currentValue: 1586.99, netPercent: -26.52, warnings: [],
+      net: -572.87, netSpent: 2159.85, currentValue: 1586.99, netPercent: -26.52,
+      daysAboveWater: 164, daysBelowWater: 306, lastCrossedOn: '2026-03-02', warnings: [],
       assets: [{ asset: 'ETH', netSpent: 900, currentValue: 500, net: -400, netPercent: -44.4 }],
     },
     equities: {
       currency: 'USD', unrealized: -2.82, realized: 0, net: -2.82,
       positions: [{ ticker: 'AAPL', assetClass: 'stock', currentValue: 197.18, totalCost: 200, unrealized: -2.82, unrealizedPercent: -1.41 }],
     },
-    history: { daysAboveWater: 164, daysBelowWater: 306, lastCrossedOn: '2026-03-02' },
   },
 } satisfies DashboardContext
 

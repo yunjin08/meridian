@@ -66,7 +66,7 @@ export function PortfolioHistoryChart({ history, isLoading }: PortfolioHistoryCh
       <section className="bg-panel-bg border border-panel-border rounded-lg p-4">
         <div className="text-[11px] uppercase tracking-widest text-text-muted font-mono">Since you started</div>
         <p className="mt-2 text-[11px] text-text-muted">
-          Not enough history yet. The curve appears once there are at least two days of trades to reprice.
+          Not enough history yet. The curve appears once Binance has at least two days of trades to reprice.
         </p>
       </section>
     )
@@ -120,7 +120,7 @@ export function PortfolioHistoryChart({ history, isLoading }: PortfolioHistoryCh
         onMouseMove={onMove}
         onMouseLeave={() => setHoverIndex(null)}
         role="img"
-        aria-label="Money put into your investments compared with their value, day by day"
+        aria-label="Money put into crypto compared with its value, day by day"
       >
         {chart.bands.map((band) => (
           <path

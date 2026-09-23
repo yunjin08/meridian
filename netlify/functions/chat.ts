@@ -159,11 +159,9 @@ PRICE (${ctx.activeSymbol}):
   if (pnl) {
     const sign = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n)}`
     prompt += `\n\nPROFIT AND LOSS (all time, vs. what the user put in): ${pnl.total == null ? 'not loaded' : `${sign(pnl.total)} ${pnl.totalCurrency}`}`
-    const h = pnl.history
-    prompt += `\n- Whole portfolio since inception: ${h.daysAboveWater} days above water, ${h.daysBelowWater} below${h.lastCrossedOn ? `, last crossed ${h.lastCrossedOn}` : ''}.`
     const c = pnl.crypto
     if (c) {
-      prompt += `\n- Crypto: net ${sign(c.net)} USDT (${fmtPct(c.netPercent)}) on ${fmt(c.netSpent)} still invested, worth ${fmt(c.currentValue)} now.`
+      prompt += `\n- Crypto: net ${sign(c.net)} USDT (${fmtPct(c.netPercent)}) on ${fmt(c.netSpent)} still invested, worth ${fmt(c.currentValue)} now. ${c.daysAboveWater} days above water, ${c.daysBelowWater} below${c.lastCrossedOn ? `, last crossed ${c.lastCrossedOn}` : ''}.`
       for (const a of c.assets) {
         prompt += `\n  - ${a.asset}: net ${a.net == null ? 'unknown' : sign(a.net)} (${fmtPct(a.netPercent)}), ${fmt(a.netSpent)} in, ${a.currentValue == null ? 'unpriced' : `${fmt(a.currentValue)} now`}`
       }

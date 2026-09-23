@@ -68,6 +68,9 @@ function buildPnlContext(): ChatPnlContext | null {
           netSpent: pnl.crypto.netSpent,
           currentValue: pnl.crypto.currentValue,
           netPercent: pnl.crypto.netPercent,
+          daysAboveWater: pnl.crypto.history.daysAboveWater,
+          daysBelowWater: pnl.crypto.history.daysBelowWater,
+          lastCrossedOn: pnl.crypto.history.lastCrossedOn,
           warnings: pnl.crypto.warnings,
           assets: pnl.crypto.assets.slice(0, PNL_ROW_LIMIT).map((a) => ({
             asset: a.asset, netSpent: a.netSpent, currentValue: a.currentValue, net: a.net, netPercent: a.netPercent,
@@ -89,11 +92,6 @@ function buildPnlContext(): ChatPnlContext | null {
             })),
         }
       : null,
-    history: {
-      daysAboveWater: pnl.history.daysAboveWater,
-      daysBelowWater: pnl.history.daysBelowWater,
-      lastCrossedOn: pnl.history.lastCrossedOn,
-    },
   }
 }
 
