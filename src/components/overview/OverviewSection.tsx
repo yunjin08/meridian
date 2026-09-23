@@ -8,7 +8,6 @@ import { TaxDeadlineBanner } from '@/components/tax/TaxDeadlineBanner'
 import { usePnlSummary } from '@/hooks/usePnlSummary'
 import { usePortfolioSummary } from '@/hooks/usePortfolioSummary'
 import { formatMoney } from '@/lib/formatters'
-import { EMPTY_PORTFOLIO_HISTORY } from '@/lib/portfolioHistory'
 import { useBalanceStore } from '@/store/balanceStore'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import { useStockPositionsStore } from '@/store/stockPositionsStore'
@@ -49,7 +48,7 @@ export function OverviewSection() {
       </div>
 
       {(pnl.crypto !== null || pnlLoading) && (
-        <PortfolioHistoryChart history={pnl.crypto?.history ?? EMPTY_PORTFOLIO_HISTORY} isLoading={pnlLoading} />
+        <PortfolioHistoryChart history={pnl.history} isLoading={pnlLoading} />
       )}
 
       <PnlSection pnl={pnl} isLoading={pnlLoading || positionsLoading} error={pnlError} />

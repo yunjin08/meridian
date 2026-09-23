@@ -102,9 +102,6 @@ export interface ChatCryptoPnlContext {
   netSpent: number
   currentValue: number
   netPercent: number | null
-  daysAboveWater: number
-  daysBelowWater: number
-  lastCrossedOn: string | null
   warnings: string[]
   /** Largest absolute net first, capped by the client. */
   assets: Array<{
@@ -136,6 +133,12 @@ export interface ChatPnlContext {
   totalCurrency: string
   crypto: ChatCryptoPnlContext | null
   equities: ChatEquitiesPnlContext | null
+  /** Whole-portfolio since-inception curve (crypto + stocks). */
+  history: {
+    daysAboveWater: number
+    daysBelowWater: number
+    lastCrossedOn: string | null
+  }
 }
 
 export interface ChatRequest {

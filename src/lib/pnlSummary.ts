@@ -1,5 +1,6 @@
 import type { StockAccountSummary, StockHolding, StockPosition } from '@/types/portfolio'
 import type { CryptoAssetPnl, CryptoPnlResponse, FiatFunding, PortfolioHistory } from '@/types/pnl'
+import { EMPTY_PORTFOLIO_HISTORY } from '@/lib/portfolioHistory'
 
 const USD = 'USD'
 
@@ -49,7 +50,6 @@ export interface CryptoPnl {
   warnings: string[]
   assets: CryptoAssetRow[]         // sorted by absolute net, largest first
   funding: FiatFunding[]
-  history: PortfolioHistory
 }
 
 export interface PnlSummary {
@@ -58,6 +58,7 @@ export interface PnlSummary {
   isMixedCurrency: boolean
   crypto: CryptoPnl | null
   equities: EquitiesPnl | null
+  history: PortfolioHistory        // whole-portfolio since-inception curve (crypto + stocks), built server-side
 }
 
 export interface PnlSummaryInput {
@@ -103,7 +104,6 @@ function summariseCrypto(response: CryptoPnlResponse): CryptoPnl {
     warnings: response.warnings,
     assets,
     funding: response.funding,
-    history: response.history,
   }
 }
 
@@ -163,5 +163,6 @@ export function summarisePnl(input: PnlSummaryInput): PnlSummary {
     total = (crypto?.net ?? 0) + (equities?.net ?? 0)
   }
 
-  return { total, totalCurrency, isMixedCurrency, crypto, equities }
+  const history = input.cryptoPnl?.history ?? EMPTY_PORTFOLIO_HISTORY
+  return { total, totalCurrency, isMixedCurrency, crypto, equities, history }
 }
