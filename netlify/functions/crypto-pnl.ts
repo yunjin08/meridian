@@ -11,6 +11,7 @@ import {
   totalCryptoPnl,
 } from '../../src/lib/cryptoPnl.ts'
 import { buildPortfolioHistory, EMPTY_PORTFOLIO_HISTORY } from '../../src/lib/portfolioHistory.ts'
+import { buildStockHistory, type StockHistoryParts } from './utils/stock-history.ts'
 import { toIsoDate } from '../../src/lib/isoDate.ts'
 import type {
   BinanceC2cHistoryResponse,
@@ -271,40 +272,45 @@ async function buildHistory(
   usdPerFiat: ReturnType<typeof buildFiatRateLookup>,
   assets: ReadonlyArray<{ asset: string; heldQty: number; boughtQty: number; soldQty: number }>,
   now: number,
+  stock: StockHistoryParts,
 ): Promise<HistoryResult> {
-  const events = buildHistoryEvents(
+  const cryptoEvents = buildHistoryEvents(
     held.map((h, i) => ({ asset: h.asset, fills: fills[i] ?? [] })),
     fiatOrders,
     usdPerFiat,
   )
-  if (events.length === 0) return { history: EMPTY_PORTFOLIO_HISTORY, warnings: [] }
+  const events = [...cryptoEvents, ...stock.events]
+  if (events.length === 0) return { history: EMPTY_PORTFOLIO_HISTORY, warnings: stock.warnings }
 
-  const firstEventTime = Math.min(...events.map((e) => e.time))
-  const symbols = [...new Set(events.map((e) => e.asset))]
+  const symbols = [...new Set(cryptoEvents.map((e) => e.asset))]
+  const cryptoFirst = cryptoEvents.length > 0 ? Math.min(...cryptoEvents.map((e) => e.time)) : now
 
   try {
     const series = await mapWithConcurrency(symbols, CONCURRENCY, (asset) =>
-      fetchDailyCloses(asset, firstEventTime - MS_PER_DAY, now),
+      fetchDailyCloses(asset, cryptoFirst - MS_PER_DAY, now),
     )
-    const prices = new Map(symbols.map((asset, i) => [asset, series[i] ?? new Map<string, number>()]))
+    // Crypto closes and stock closes share one map keyed by asset; the ticker
+    // namespaces (BTC, AAPL) do not collide.
+    const prices = new Map<string, Map<string, number>>(stock.closes)
+    symbols.forEach((asset, i) => prices.set(asset, series[i] ?? new Map<string, number>()))
     // Whatever the trades do not account for, in either direction: coins that
     // arrived some other way, or coins bought here and later withdrawn. Applying
     // the difference from day one makes the curve end on today's real value.
-    const offset = new Map<string, number>()
+    const offset = new Map<string, number>(stock.offset)
     for (const a of assets) {
       const unexplained = a.heldQty - (a.boughtQty - a.soldQty)
       if (Math.abs(unexplained) > 1e-12) offset.set(a.asset, unexplained)
     }
     return {
       history: buildPortfolioHistory(events, prices, offset, toIsoDate(new Date(now))),
-      warnings: [],
+      warnings: stock.warnings,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error'
     console.error('[crypto-pnl] daily prices unavailable:', msg)
     return {
       history: EMPTY_PORTFOLIO_HISTORY,
-      warnings: [`Daily price history unavailable (${msg}); the chart cannot be drawn.`],
+      warnings: [`Daily price history unavailable (${msg}); the chart cannot be drawn.`, ...stock.warnings],
     }
   }
 }
@@ -316,10 +322,11 @@ export const handler: Handler = async (event) => {
 
   try {
     const now = Date.now()
-    const [totals, priceMap, fiat] = await Promise.all([
+    const [totals, priceMap, fiat, stock] = await Promise.all([
       fetchAssetTotals(),
       fetchPriceMap(),
       fetchFiatOrders(now),
+      buildStockHistory(now),
     ])
     const fiatOrders = fiat.orders
 
@@ -347,7 +354,7 @@ export const handler: Handler = async (event) => {
       }),
     )
     const { history, warnings: historyWarnings } = await buildHistory(
-      held, fills, fiatOrders, usdPerFiat, assets, now,
+      held, fills, fiatOrders, usdPerFiat, assets, now, stock,
     )
     assets.sort((a, b) => (b.currentValueUsdt ?? 0) - (a.currentValueUsdt ?? 0))
 
