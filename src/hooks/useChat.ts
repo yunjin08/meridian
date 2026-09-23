@@ -17,7 +17,7 @@ import { loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useCryptoPnlStore } from '@/store/cryptoPnlStore'
 import type { AlertCondition } from '@/types/alert'
 import type { TaxPeriod } from '@/types/tax'
-import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatTaxContext, ChatStreamEvent } from '@/types/chat'
+import type { ChatMessage, DashboardContext, ChatApiResponse, AppliedTool, ChatPnlContext, ChatPortfolioContext, ChatTaxContext, ChatStreamEvent, ChatToolName } from '@/types/chat'
 
 // Enough recent entries for the model to reference by id without dumping a
 // whole year of receipts into every turn; period summaries below are never capped.
@@ -224,98 +224,117 @@ function buildContext(): DashboardContext {
   }
 }
 
+// Returns a server-reported failure reason when the tool ran but did not do
+// what the model claimed (e.g. a delete that matched no row), or null on
+// success. Throws only for a device-side problem the user can retry past (a
+// stale bundle missing the result, or an unrecognized tool name). The failure
+// reason must reach the user: the model's reply text often claims success even
+// when the tool result says otherwise, so the browser can't trust that text.
 async function applyOneTool(
   tool: AppliedTool,
   alertStore: ReturnType<typeof useAlertStore.getState>,
   taxStore: ReturnType<typeof useTaxStore.getState>,
   portfolioStore: ReturnType<typeof usePortfolioStore.getState>
-): Promise<void> {
+): Promise<string | null> {
   switch (tool.name) {
-    // Alert and tax tools now execute server-side (see chat.ts) — the
-    // mutation is already done by the time this runs. `result` is the real
-    // outcome; this just syncs the local store from it, no network call. A
-    // missing result means this tab predates that change (stale bundle); a
-    // present-but-failed result is already explained in the assistant's
-    // reply text, so there's nothing to surface again here.
+    // Alert and tax tools execute server-side (see chat.ts) — the mutation is
+    // already done by the time this runs. `result` is the real outcome; this
+    // syncs the local store from it, no network call. A missing result means
+    // this tab predates that change (stale bundle).
     case 'add_alert':
     case 'edit_alert':
     case 'toggle_alert': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok && 'alert' in result) alertStore.applySyncedAlert(result.alert)
-      break
+      if (!result.ok) return result.error
+      if ('alert' in result) alertStore.applySyncedAlert(result.alert)
+      return null
     }
     case 'remove_alert': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok) alertStore.applySyncedRemoval((tool.input as { id: string }).id)
-      break
+      if (!result.ok) return result.error
+      alertStore.applySyncedRemoval((tool.input as { id: string }).id)
+      return null
     }
     case 'add_tax_entry':
     case 'edit_tax_entry': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok && 'entry' in result) taxStore.applySyncedEntry(result.entry)
-      break
+      if (!result.ok) return result.error
+      if ('entry' in result) taxStore.applySyncedEntry(result.entry)
+      return null
     }
     case 'remove_tax_entry': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok) taxStore.applySyncedEntryRemoval((tool.input as { id: string }).id)
-      break
+      if (!result.ok) return result.error
+      taxStore.applySyncedEntryRemoval((tool.input as { id: string }).id)
+      return null
     }
     case 'mark_tax_filed': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok && 'filing' in result) taxStore.applySyncedFiling(result.filing)
-      break
+      if (!result.ok) return result.error
+      if ('filing' in result) taxStore.applySyncedFiling(result.filing)
+      return null
     }
     case 'unmark_tax_filed': {
       const result = tool.result
       if (result === undefined) throw new Error(`no result for ${tool.name} — this tab may be running an older build`)
-      if (result.ok) {
-        const { taxYear, period } = tool.input as { taxYear: number; period: TaxPeriod }
-        taxStore.applySyncedFilingRemoval(taxYear, period)
-      }
-      break
+      if (!result.ok) return result.error
+      const { taxYear, period } = tool.input as { taxYear: number; period: TaxPeriod }
+      taxStore.applySyncedFilingRemoval(taxYear, period)
+      return null
     }
     case 'add_symbol': {
       const { ticker, assetClass } = tool.input as { ticker: string; assetClass: 'stock' | 'reit' }
       portfolioStore.addStock({ ticker: ticker.toUpperCase(), assetClass })
-      break
+      return null
     }
     case 'remove_symbol': {
       const { ticker } = tool.input as { ticker: string }
       portfolioStore.removeStock(ticker.toUpperCase())
-      break
+      return null
     }
     default:
       throw new Error(`unrecognized tool "${tool.name}" — this tab may be running an older build`)
   }
 }
 
+export interface ToolApplyOutcome {
+  /** Tools this device couldn't apply at all (stale bundle, unknown tool). Retryable by refreshing. */
+  deviceFailures: string[]
+  /** Tools that ran server-side but reported failure while the reply may claim success. */
+  serverFailures: Array<{ name: ChatToolName; error: string }>
+}
+
 // Parse and apply tool calls returned by the backend to local stores. Each
 // tool is applied independently and failures are collected rather than
 // thrown — the model's reply already claims these succeeded (it has no way
 // to know otherwise), so a silently-swallowed failure would leave the user
-// believing something happened that didn't. An unmatched tool name is the
-// same failure mode: it means this tab's JS predates a tool the server
-// already knows about, which a stale cached bundle can produce.
-async function applyToolResults(toolCalls: AppliedTool[]): Promise<string[]> {
+// believing something happened that didn't. Two distinct failures: a
+// device-side one (unmatched/missing-result tool, from a stale cached bundle)
+// that refreshing fixes, and a server-reported one (the tool ran but changed
+// nothing, e.g. a delete that matched no row) that the user must be told about
+// because the assistant's text can't be trusted to admit it.
+async function applyToolResults(toolCalls: AppliedTool[]): Promise<ToolApplyOutcome> {
   const alertStore = useAlertStore.getState()
   const taxStore = useTaxStore.getState()
   const portfolioStore = usePortfolioStore.getState()
-  const failures: string[] = []
+  const deviceFailures: string[] = []
+  const serverFailures: Array<{ name: ChatToolName; error: string }> = []
 
   for (const tool of toolCalls) {
     try {
-      await applyOneTool(tool, alertStore, taxStore, portfolioStore)
+      const error = await applyOneTool(tool, alertStore, taxStore, portfolioStore)
+      if (error !== null) serverFailures.push({ name: tool.name, error })
     } catch (err) {
       console.error(`[useChat] failed to apply ${tool.name}:`, err)
-      failures.push(tool.name)
+      deviceFailures.push(tool.name)
     }
   }
-  return failures
+  return { deviceFailures, serverFailures }
 }
 
 class StreamError extends Error {}
@@ -444,11 +463,19 @@ export function useChat() {
           ? await readStream(res.body, setDraft)
           : ((await res.json()) as ChatApiResponse)
 
-        const failedTools = result.appliedTools.length > 0 ? await applyToolResults(result.appliedTools) : []
+        const { deviceFailures, serverFailures } = result.appliedTools.length > 0
+          ? await applyToolResults(result.appliedTools)
+          : { deviceFailures: [], serverFailures: [] }
 
-        const failureNote = failedTools.length > 0
-          ? `\n\n(This device could not apply: ${failedTools.join(', ')}. Try refreshing the page and asking again.)`
-          : ''
+        const notes: string[] = []
+        if (serverFailures.length > 0) {
+          // The reply above may claim these worked; they didn't. Correct it.
+          notes.push(`Heads up: that didn't actually go through — ${serverFailures.map((f) => f.error).join('; ')}. Nothing was changed.`)
+        }
+        if (deviceFailures.length > 0) {
+          notes.push(`This device could not apply: ${deviceFailures.join(', ')}. Try refreshing the page and asking again.`)
+        }
+        const failureNote = notes.length > 0 ? `\n\n(${notes.join(' ')})` : ''
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
